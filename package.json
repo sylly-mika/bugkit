@@ -4,6 +4,8 @@
   "description": "Bug report button, dialog and screenshot capture for React apps that send reports through bugkit's Go handler.",
   "license": "MIT",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -13,9 +15,15 @@
   "files": [
     "dist"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sylly-mika/bugkit.git"
+  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "check:pack": "node scripts/check-pack.mjs"
   },
   "peerDependencies": {
     "html-to-image": "^1.11.13",
