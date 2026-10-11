@@ -294,6 +294,12 @@ func TestRefusalOrderBeforeTheBody(t *testing.T) {
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("spent limiter: status = %d, want 429\n%s", rec.Code, rec.Body.String())
 	}
+	ra := rec.Header().Get("Retry-After")
+	n, err := strconv.Atoi(ra)
+	if err != nil || n < 1 {
+		t.Fatalf("spent limiter: Retry-After = %q, want a positive number of seconds", ra)
+	}
+	assertProblem(t, rec, http.StatusTooManyRequests, fmt.Sprintf("Too many bug reports. Try again in %d seconds.", n))
 	if sink.calls != 0 {
 		t.Fatalf("sink calls = %d, want 0", sink.calls)
 	}
