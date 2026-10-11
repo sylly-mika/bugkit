@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -73,8 +74,7 @@ func Handler(cfg Config) http.Handler {
 
 		res, err := cfg.Sink.Submit(ctx, reporter, report)
 		if err != nil {
-			log.Error("bugkit: submission failed", "error", err.Error(), "reporter", reporter.ID)
-			writeProblem(w, r, log, http.StatusBadGateway, "The report could not be filed. Copy it and try again.")
+			writeSinkFailure(w, r, log, reporter, err)
 			return
 		}
 
@@ -84,4 +84,38 @@ func Handler(cfg Config) http.Handler {
 			log.Error("bugkit: writing the response failed", "error", err.Error())
 		}
 	})
+}
+
+// writeSinkFailure answers a failed submission. A *SinkError from the intake
+// is mapped by its status: a 429 relays the intake's wait, a refused key (401,
+// 403, 409) is the operator's to fix and answers 503, and anything else is 502.
+// The log line names the status and never a body, a key or the reporter.
+func writeSinkFailure(w http.ResponseWriter, r *http.Request, logger *slog.Logger, reporter Reporter, err error) {
+	var se *SinkError
+	if !errors.As(err, &se) {
+		logger.Error("bugkit: submission failed", "error", err.Error(), "reporter", reporter.ID)
+		writeProblem(w, r, logger, http.StatusBadGateway, "The report could not be filed. Copy it and try again.")
+		return
+	}
+	logger.Error("bugkit: submission failed", "error", se.Error(), "status", se.Status)
+	switch se.Status {
+	case http.StatusTooManyRequests:
+		n := sinkRetrySeconds(se.RetryAfter)
+		w.Header().Set("Retry-After", strconv.Itoa(n))
+		writeProblem(w, r, logger, http.StatusTooManyRequests,
+			fmt.Sprintf("Too many bug reports. Try again in %d seconds.", n))
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict:
+		writeProblem(w, r, logger, http.StatusServiceUnavailable, "Bug reporting is not configured on this server.")
+	default:
+		writeProblem(w, r, logger, http.StatusBadGateway, "The report could not be filed. Copy it and try again.")
+	}
+}
+
+// sinkRetrySeconds is the wait a 429 relays. The intake sends whole seconds;
+// when it sends no usable Retry-After, the wait is 60 seconds.
+func sinkRetrySeconds(d time.Duration) int {
+	if d <= 0 {
+		return 60
+	}
+	return int(math.Ceil(d.Seconds()))
 }
