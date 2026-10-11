@@ -95,6 +95,27 @@ describe("buildBugReportForm", () => {
     expect(diagnosticsOf(form)).toEqual({ environment, entries: null });
   });
 
+  it("cuts a user agent too long to fit, so the part still fits the limit", () => {
+    const form = buildBugReportForm(
+      payload({ environment: { ...environment, user_agent: "a".repeat(40_000) } }),
+    );
+    const part = form.get("diagnostics") as string;
+
+    expect(new TextEncoder().encode(part).length).toBeLessThanOrEqual(DIAGNOSTICS_LIMIT_BYTES);
+    expect(JSON.parse(part).entries).toBeNull();
+  });
+
+  it("cuts a user agent of astral characters by whole characters, never mid-pair", () => {
+    const form = buildBugReportForm(
+      payload({ environment: { ...environment, user_agent: "😀".repeat(20_000) } }),
+    );
+    const part = form.get("diagnostics") as string;
+
+    expect(new TextEncoder().encode(part).length).toBeLessThanOrEqual(DIAGNOSTICS_LIMIT_BYTES);
+    expect(JSON.parse(part).entries).toBeNull();
+    expect(JSON.parse(part).environment.user_agent).toMatch(/^(😀)+$/u);
+  });
+
   it("posts null entries instead of throwing on diagnostics JSON cannot hold", () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
@@ -160,5 +181,18 @@ describe("reportAsText", () => {
       text = reportAsText(payload({ diagnostics: cyclic }));
     }).not.toThrow();
     expect(text).not.toContain("Diagnostics:");
+  });
+
+  it("keeps a placeholder line for an array entry JSON cannot write, in its place", () => {
+    const cyclic: Record<string, unknown> = {};
+    cyclic.self = cyclic;
+    const text = reportAsText(payload({ diagnostics: [apiEntry, cyclic, jsEntry] }));
+
+    expect(text.split("\n").slice(-4)).toEqual([
+      "Diagnostics:",
+      "  2026-09-06T09:12:33.000Z GET /api/v1/sites 500 r1",
+      "  [entry could not be written as JSON]",
+      "  2026-09-06T09:12:34.000Z x is undefined (error)",
+    ]);
   });
 });

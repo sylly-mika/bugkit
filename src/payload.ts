@@ -60,7 +60,7 @@ function diagnosticsPart(environment: BugReportEnvironment, diagnostics: unknown
   try {
     json = wrap(entries);
   } catch {
-    return wrap(null);
+    return nullEntriesPart(environment);
   }
   if (utf8Bytes(json) <= DIAGNOSTICS_LIMIT_BYTES) return json;
 
@@ -70,7 +70,28 @@ function diagnosticsPart(environment: BugReportEnvironment, diagnostics: unknown
       if (utf8Bytes(candidate) <= DIAGNOSTICS_LIMIT_BYTES) return candidate;
     }
   }
-  return wrap(null);
+  return nullEntriesPart(environment);
+}
+
+/**
+ * The environment with null entries. When even that is over the limit, the user
+ * agent is cut, by whole code points, to the longest prefix that fits.
+ */
+function nullEntriesPart(environment: BugReportEnvironment): string {
+  const wrap = (userAgent: string) =>
+    JSON.stringify({ environment: { ...environment, user_agent: userAgent }, entries: null });
+  const chars = Array.from(environment.user_agent);
+  const fits = (count: number) =>
+    utf8Bytes(wrap(chars.slice(0, count).join(""))) <= DIAGNOSTICS_LIMIT_BYTES;
+
+  let lo = 0;
+  let hi = chars.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  return wrap(chars.slice(0, lo).join(""));
 }
 
 export function buildBugReportForm(payload: BugReportPayload): FormData {
@@ -143,7 +164,7 @@ export function reportAsText(payload: BugReportPayload): string {
       lines.push("", "Diagnostics:");
       for (const entry of diagnostics) {
         const line = diagnosticLine(entry);
-        if (line !== null) lines.push(line);
+        lines.push(line ?? "  [entry could not be written as JSON]");
       }
     }
   } else if (diagnostics !== null && diagnostics !== undefined) {
