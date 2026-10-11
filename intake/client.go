@@ -32,13 +32,15 @@ var _ bugkit.Sink = (*Client)(nil)
 // It never follows a redirect: a 3xx is answered as a SinkError, so the key
 // is never sent to a second URL.
 func New(url, key string) *Client {
-	return &Client{
-		URL: url,
-		Key: key,
-		HTTP: &http.Client{
-			Timeout:       30 * time.Second,
-			CheckRedirect: noRedirect,
-		},
+	return &Client{URL: url, Key: key, HTTP: newHTTPClient()}
+}
+
+// newHTTPClient is the client New builds, and the one a Client with no HTTP
+// client uses: a 30-second timeout and no redirect followed.
+func newHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout:       30 * time.Second,
+		CheckRedirect: noRedirect,
 	}
 }
 
@@ -59,7 +61,7 @@ func (c *Client) Submit(ctx context.Context, who bugkit.Reporter, r bugkit.Repor
 
 	client := c.HTTP
 	if client == nil {
-		client = http.DefaultClient
+		client = newHTTPClient()
 	}
 	resp, err := client.Do(req)
 	if err != nil {

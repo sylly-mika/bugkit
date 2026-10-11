@@ -310,6 +310,36 @@ func TestSubmitDoesNotFollowARedirect(t *testing.T) {
 	}
 }
 
+// A Client built as a literal, with no HTTP client, must not follow a redirect
+// either: the key would go to the second URL.
+func TestLiteralClientDoesNotFollowARedirect(t *testing.T) {
+	var elsewhere atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.ReadAll(r.Body)
+		w.Header().Set("Location", "/elsewhere")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	})
+	mux.HandleFunc("/elsewhere", func(w http.ResponseWriter, r *http.Request) {
+		elsewhere.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(w, defaultBody)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	c := &intake.Client{URL: srv.URL + "/", Key: testKey()}
+	_, err := c.Submit(context.Background(), bugkit.Reporter{}, fullReport())
+	var se *bugkit.SinkError
+	if !errors.As(err, &se) || se.Status != http.StatusTemporaryRedirect {
+		t.Fatalf("error = %v, want a SinkError with status 307", err)
+	}
+	if n := elsewhere.Load(); n != 0 {
+		t.Fatalf("the client followed the redirect %d time(s)", n)
+	}
+}
+
 func TestSubmit429CarriesRetryAfter(t *testing.T) {
 	cases := []struct {
 		name   string
