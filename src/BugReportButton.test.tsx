@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { userEvent } from "@testing-library/user-event";
 import { toPng } from "html-to-image";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportButton } from "./BugReportButton.js";
