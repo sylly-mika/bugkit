@@ -1,5 +1,8 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { userEvent } from "@testing-library/user-event";
+import { toPng } from "html-to-image";
+import { vi } from "vitest";
 import * as kit from "./index.js";
 import type {
   BugReportButtonProps,
@@ -8,6 +11,8 @@ import type {
   BugReportResult,
   BugReportSubmit,
 } from "./index.js";
+
+vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
 
 describe("package entry", () => {
   it("exports exactly the public names", () => {
@@ -19,15 +24,28 @@ describe("package entry", () => {
     ]);
   });
 
-  it("lets a host wire the button from the entry alone", () => {
+  it("lets a host wire the button from the entry alone", async () => {
+    vi.mocked(toPng).mockResolvedValue("data:image/png;base64,AAECAw==");
+    const user = userEvent.setup();
     const result: BugReportResult = { id: "t-1", number: 7 };
-    const submit: BugReportSubmit = async () => result;
-    const getContext = (): BugReportContext => ({ area: "/", version: "dev" });
+    const submit = vi.fn<BugReportSubmit>().mockResolvedValue(result);
+    const getContext = (): BugReportContext => ({ area: "/tasks/7", version: "dev" });
     const labels: Partial<BugReportLabels> = { buttonLabel: "Report" };
     const props: BugReportButtonProps = { submit, getContext, labels };
 
     render(<kit.BugReportButton {...props} />);
 
     expect(screen.getByRole("button", { name: "Report" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Report" }));
+    await user.type(await screen.findByLabelText(kit.defaultLabels.descriptionLabel), "Save fails");
+    await user.click(screen.getByLabelText(kit.defaultLabels.impactBlocks));
+    await user.click(screen.getByRole("button", { name: kit.defaultLabels.send }));
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    const form = submit.mock.calls[0][0];
+    expect(form).toBeInstanceOf(FormData);
+    expect(form.get("description")).toBe("Save fails");
+    expect(form.get("area")).toBe("/tasks/7");
   });
 });

@@ -3,6 +3,7 @@ import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog } from "./BugReportDialog.js";
 import type { BugReportLabels } from "./labels.js";
+import { reportAsText } from "./payload.js";
 import type { BugReportContext, BugReportEnvironment } from "./payload.js";
 
 // Every label is its own key, so an assertion names the string it means. The
@@ -59,7 +60,7 @@ describe("BugReportDialog", () => {
 
   // The spec's rule is that everything the submission carries is visible before
   // Send, so this asserts every value in the context — not a sample of it.
-  it("shows the read-only context so nobody sends what they have not seen", () => {
+  it("shows every value the report carries before Send", () => {
     renderDialog();
 
     for (const value of [
@@ -213,7 +214,18 @@ describe("BugReportDialog", () => {
     await user.click(screen.getByRole("button", { name: "send" }));
 
     await user.click(await screen.findByRole("button", { name: "copyToClipboard" }));
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Send failed"));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(
+      reportAsText({
+        description: "Send failed",
+        impact: "workaround",
+        context,
+        environment,
+        diagnostics: [],
+        screenshot: null,
+      }),
+    );
+    expect(await screen.findByText("copied")).toBeInTheDocument();
   });
 
   // "Not configured" and "try again in 40 seconds" are different problems, and
