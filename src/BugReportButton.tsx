@@ -8,6 +8,7 @@ import {
   type BugReportSubmit,
 } from "./payload.js";
 import { mergeLabels, type BugReportLabelOverrides, type BugReportLabels } from "./labels.js";
+import { partProps, type BugReportClassNames } from "./theme.js";
 
 export type BugReportButtonProps = {
   submit: BugReportSubmit;
@@ -30,6 +31,10 @@ export type BugReportButtonProps = {
   children?: ReactNode;
   /** The dialog opened (true) or closed (false); a host that must outlive the launcher listens. */
   onOpenChange?: (open: boolean) => void;
+  /** Classes per part, added to bugkit's default look; any class beats the default. */
+  classNames?: BugReportClassNames;
+  /** CSP nonce for the one `<style>` element bugkit adds to `<head>`. */
+  nonce?: string;
 };
 
 type Session = {
@@ -48,6 +53,8 @@ export function BugReportButton(props: BugReportButtonProps) {
     className,
     children,
     onOpenChange,
+    classNames,
+    nonce,
   } = props;
   const labels: BugReportLabels = mergeLabels(props.labels);
   const [session, setSession] = useState<Session | null>(null);
@@ -108,7 +115,7 @@ export function BugReportButton(props: BugReportButtonProps) {
       <button
         type="button"
         data-bugreport-launcher
-        className={className}
+        {...partProps(classNames, "launcher", className)}
         onClick={open}
         aria-busy={busy}
         aria-label={name}
@@ -126,6 +133,8 @@ export function BugReportButton(props: BugReportButtonProps) {
           diagnostics={session.diagnostics}
           submit={submit}
           onClose={close}
+          classNames={classNames}
+          nonce={nonce}
         />
       ) : null}
     </>

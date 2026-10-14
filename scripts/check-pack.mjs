@@ -4,7 +4,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, posix, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const root = resolve(import.meta.dirname, "..");
@@ -12,8 +12,18 @@ const failures = [];
 
 const FORBIDDEN_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "prepack", "postpack"];
 const ALLOWED = /^(package\.json|README\.md|LICENSE|dist\/[A-Za-z0-9_./-]+\.(js|d\.ts))$/;
-const REQUIRED = ["package.json", "README.md", "LICENSE", "dist/index.js", "dist/index.d.ts"];
-const EXPORTS = "BUG_KINDS,BugReportButton,BugReportDialog,SUMMARY_LIMIT,buildBugReportForm,defaultLabels";
+const REQUIRED = [
+  "package.json",
+  "README.md",
+  "LICENSE",
+  "dist/index.js",
+  "dist/index.d.ts",
+  "dist/next.js",
+  "dist/next.d.ts",
+  "dist/server.js",
+  "dist/server.d.ts",
+];
+const EXPORTS = "BUG_KINDS,BUG_REPORT_PARTS,BugReportButton,BugReportDialog,SUMMARY_LIMIT,buildBugReportForm,defaultLabels";
 const LINKED = ["react", "react-dom", "html-to-image", "@types/react", "@types/react-dom"];
 
 const PROBE_MJS = `import * as kit from "@sylly-mika/bugkit";
@@ -21,6 +31,8 @@ import react from "react";
 import server from "react-dom/server";
 
 export const names = Object.keys(kit).sort();
+export const nextNames = Object.keys(await import("@sylly-mika/bugkit/next")).sort();
+export const serverNames = Object.keys(await import("@sylly-mika/bugkit/server")).sort();
 export const html = server.renderToString(
   react.createElement(kit.BugReportButton, {
     submit: async () => ({ id: "00000000-0000-0000-0000-000000000000", number: 1 }),
@@ -47,6 +59,10 @@ const result: BugReportResult = { id: "a", number: 2 };
 const partial: BugReportResult = { id: "a" };
 
 export const used = [BugReportButton, BugReportDialog, buildBugReportForm, props, labels, result, partial];
+import { BugReport } from "@sylly-mika/bugkit/next";
+import { createBugReportRoute } from "@sylly-mika/bugkit/server";
+export const r: (q: Request) => Promise<Response> = createBugReportRoute({ intakeUrl: "u", intakeKey: "k", reporter: () => null });
+export const b = BugReport;
 `;
 
 function checkScripts() {
@@ -95,10 +111,36 @@ function makeApp(tmp, tarball) {
   return app;
 }
 
+async function checkEntries(app) {
+  const pkgDir = join(app, "node_modules", "@sylly-mika", "bugkit");
+  if (!readFileSync(join(pkgDir, "dist/next.js"), "utf8").startsWith('"use client";')) {
+    failures.push('dist/next.js does not start with "use client"');
+  }
+  const seen = new Set();
+  const queue = ["dist/server.js"];
+  while (queue.length > 0) {
+    const file = queue.shift();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const source = readFileSync(join(pkgDir, file), "utf8");
+    for (const [, spec] of source.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)) {
+      if (/^(react|react-dom|html-to-image)(\/|$)/.test(spec)) {
+        failures.push(`dist/server.js reaches ${spec} through ${file}`);
+      } else if (spec.startsWith("./")) {
+        queue.push(posix.join(posix.dirname(file), spec));
+      }
+    }
+  }
+}
+
 async function checkRuntime(app) {
   try {
     const probe = await import(pathToFileURL(join(app, "probe.mjs")).href);
     if (probe.names.join(",") !== EXPORTS) failures.push(`runtime exports are ${probe.names.join(",")}`);
+    if (probe.nextNames.join(",") !== "BugReport") failures.push(`./next exports are ${probe.nextNames.join(",")}`);
+    if (probe.serverNames.join(",") !== "createBugReportRoute") {
+      failures.push(`./server exports are ${probe.serverNames.join(",")}`);
+    }
     if (!probe.html.includes("<button")) failures.push("BugReportButton rendered no button");
   } catch (err) {
     failures.push(`runtime import failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -145,6 +187,7 @@ try {
   }
   if (tarball) {
     const app = makeApp(tmp, tarball);
+    checkEntries(app);
     await checkRuntime(app);
     checkTypes(app);
   }

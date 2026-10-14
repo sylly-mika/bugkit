@@ -2,6 +2,8 @@ export { BugReportButton } from "./BugReportButton.js";
 export type { BugReportButtonProps } from "./BugReportButton.js";
 export { BugReportDialog } from "./BugReportDialog.js";
 export type { BugReportResult, BugReportSubmit } from "./payload.js";
+export { BUG_REPORT_PARTS } from "./theme.js";
+export type { BugReportPart, BugReportClassNames } from "./theme.js";
 export { defaultLabels } from "./labels.js";
 export type { BugReportKindLabels, BugReportLabelOverrides, BugReportLabels } from "./labels.js";
 export { BUG_KINDS, SUMMARY_LIMIT, buildBugReportForm } from "./payload.js";

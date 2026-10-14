@@ -281,6 +281,8 @@ describe("the screenshot pane", () => {
 
     const input = screen.getByRole("textbox", { name: defaultLabels.textInputLabel });
     expect(input).toHaveFocus();
+    expect(input).toHaveStyle({ position: "absolute" });
+    expect(document.querySelector('[data-bugkit="canvas-stage"]')).toHaveStyle({ position: "relative" });
     await user.type(input, "Here{Enter}");
 
     await ref.current!.toBlob();

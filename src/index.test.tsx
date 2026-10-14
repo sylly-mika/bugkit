@@ -18,6 +18,7 @@ describe("package entry", () => {
   it("exports exactly the public names", () => {
     expect(Object.keys(kit).sort()).toEqual([
       "BUG_KINDS",
+      "BUG_REPORT_PARTS",
       "BugReportButton",
       "BugReportDialog",
       "SUMMARY_LIMIT",
