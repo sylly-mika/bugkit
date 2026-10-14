@@ -148,6 +148,32 @@ describe("createBugReportRoute", () => {
     expect(new Uint8Array(await shot.arrayBuffer())).toEqual(PNG16);
   });
 
+  it("S4b: forwards the app's reporter and never a reporter sent in the form", async () => {
+    const route = routeWith({});
+    const form = good();
+    form.set("reporter_name", "Mallory");
+    form.set("reporter_email", "m@x.test");
+
+    const res = await send(route, form);
+
+    expect(res.status).toBe(201);
+    expect(upstreamForm().get("reporter_name")).toBe("Ann");
+    expect(upstreamForm().get("reporter_email")).toBe("ann@x.test");
+    expect([...upstreamForm().values()]).not.toContain("Mallory");
+    expect([...upstreamForm().values()]).not.toContain("m@x.test");
+  });
+
+  it("S5b: relays diagnostics byte for byte, spaces included", async () => {
+    const route = routeWith({});
+    const form = good();
+    form.set("diagnostics", '  {"a": 1}  ');
+
+    const res = await send(route, form);
+
+    expect(res.status).toBe(201);
+    expect(upstreamForm().get("diagnostics")).toBe('  {"a": 1}  ');
+  });
+
   it("S5: does not forward empty optional fields and defaults kind to bug", async () => {
     const route = routeWith({});
     const form = good();
@@ -220,6 +246,37 @@ describe("createBugReportRoute", () => {
     expect(upstream).not.toHaveBeenCalled();
   });
 
+  it("S7d: refuses a body whose Content-Length is over 6 MiB without reading it", async () => {
+    const route = routeWith({});
+    let read = false;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          read = true;
+          controller.enqueue(new Uint8Array(16));
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const request = new Request("http://app.test/api/bug-report", {
+      method: "POST",
+      body,
+      duplex: "half",
+      headers: {
+        "content-type": "multipart/form-data; boundary=x",
+        "content-length": "6291457",
+        "user-agent": "Agent/1.0",
+      },
+    } as RequestInit);
+
+    const res = await route(request);
+
+    await expectProblem(res, 413, "Request Entity Too Large", "The report is larger than 6 MiB.");
+    expect(read).toBe(false);
+    expect(upstream).not.toHaveBeenCalled();
+  });
+
   it("S7c: refuses a body that is not multipart with 400", async () => {
     const route = routeWith({});
 
@@ -231,6 +288,7 @@ describe("createBugReportRoute", () => {
 
   it.each([
     { name: "429 with Retry-After 7", status: 429, headers: { "retry-after": "7" }, http: 429, retry: "7", detail: "Too many bug reports. Try again in 7 seconds." },
+    { name: "429 with Retry-After 7s", status: 429, headers: { "retry-after": "7s" }, http: 429, retry: "60", detail: "Too many bug reports. Try again in 60 seconds." },
     { name: "429 without Retry-After", status: 429, headers: {}, http: 429, retry: "60", detail: "Too many bug reports. Try again in 60 seconds." },
     { name: "401", status: 401, headers: {}, http: 503, retry: null, detail: "Bug reporting is not configured on this server." },
     { name: "403", status: 403, headers: {}, http: 503, retry: null, detail: "Bug reporting is not configured on this server." },

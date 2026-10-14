@@ -162,7 +162,7 @@ async function checkFields(form: FormData, request: Request): Promise<Checked> {
   if (codePoints(area) > 512) {
     throw new Refusal(422, "Area must be at most 512 characters.");
   }
-  const diagnostics = text(form, "diagnostics");
+  const diagnostics = raw(form, "diagnostics");
   if (new TextEncoder().encode(diagnostics).length > DIAGNOSTICS_LIMIT_BYTES) {
     throw new Refusal(422, "Diagnostics must be at most 32 KiB.");
   }
@@ -187,8 +187,12 @@ async function checkFields(form: FormData, request: Request): Promise<Checked> {
 }
 
 function text(form: FormData, name: string): string {
+  return raw(form, name).trim();
+}
+
+function raw(form: FormData, name: string): string {
   const value = form.get(name);
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string" ? value : "";
 }
 
 function codePoints(value: string): number {
@@ -276,13 +280,19 @@ async function filedResult(response: Response): Promise<{ id: string; number: un
 function upstreamRefusal(status: number, retryAfter: string | null): Refusal {
   console.error("bugkit: submission failed", { status });
   if (status === 429) {
-    const seconds = Number.parseInt(retryAfter ?? "", 10);
+    const seconds = retryAfterSeconds(retryAfter);
     return tooMany(seconds > 0 ? seconds : 60);
   }
   if (status === 401 || status === 403 || status === 409) {
     return new Refusal(503, NOT_CONFIGURED);
   }
   return new Refusal(502, FILING_FAILED);
+}
+
+// WHY: the Go intake client reads Retry-After as digits only, so "7s" is no delay at all.
+function retryAfterSeconds(value: string | null): number {
+  const digits = value?.trim() ?? "";
+  return /^\d+$/.test(digits) ? Number(digits) : 0;
 }
 
 function tooMany(seconds: number): Refusal {

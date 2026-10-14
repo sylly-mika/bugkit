@@ -24,7 +24,7 @@ Pre-1.0: the API may change between minor versions.
 Go 1.26 or later:
 
 ```sh
-go get github.com/sylly-mika/bugkit@v0.1.0
+go get github.com/sylly-mika/bugkit@v0.3.0
 ```
 
 npm, from the git tag (there is no registry release):
