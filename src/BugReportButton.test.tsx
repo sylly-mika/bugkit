@@ -54,7 +54,7 @@ describe("BugReportButton", () => {
     );
     await user.click(screen.getByRole("button", { name: "Report a bug" }));
 
-    expect(await screen.findByRole("button", { name: defaultLabels.send })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: defaultLabels.bug.send })).toBeInTheDocument();
   });
 
   // The session is read when the launcher is pressed, not when the host renders:
@@ -75,8 +75,8 @@ describe("BugReportButton", () => {
     area = "/after";
 
     await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
-    await user.type(await screen.findByLabelText(defaultLabels.descriptionLabel), "Broken save");
-    await user.click(screen.getByRole("button", { name: defaultLabels.send }));
+    await user.type(await screen.findByLabelText(defaultLabels.bug.descriptionLabel), "Broken save");
+    await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     const form = submit.mock.calls[0][0];
@@ -98,8 +98,8 @@ describe("BugReportButton", () => {
     render(<BugReportButton submit={submit} getContext={getContext} />);
 
     await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
-    await user.type(await screen.findByLabelText(defaultLabels.descriptionLabel), "No diagnostics");
-    await user.click(screen.getByRole("button", { name: defaultLabels.send }));
+    await user.type(await screen.findByLabelText(defaultLabels.bug.descriptionLabel), "No diagnostics");
+    await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     const form = submit.mock.calls[0][0];
@@ -162,7 +162,7 @@ describe("BugReportButton", () => {
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
     expect(onOpenChange).toHaveBeenLastCalledWith(true);
 
-    await userEvent.setup().click(screen.getByRole("button", { name: defaultLabels.cancel }));
+    await userEvent.setup().click(screen.getByRole("button", { name: defaultLabels.back }));
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
   });
 
@@ -200,7 +200,7 @@ describe("BugReportButton", () => {
 
     renderButton();
     await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
-    await user.click(await screen.findByRole("button", { name: defaultLabels.cancel }));
+    await user.click(await screen.findByRole("button", { name: defaultLabels.back }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
@@ -254,7 +254,7 @@ describe("BugReportButton", () => {
     const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
 
     await user.click(launcher);
-    await user.click(await screen.findByRole("button", { name: defaultLabels.cancel }));
+    await user.click(await screen.findByRole("button", { name: defaultLabels.back }));
 
     await waitFor(() => expect(launcher).toHaveFocus());
   });

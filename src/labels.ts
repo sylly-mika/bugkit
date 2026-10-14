@@ -4,25 +4,49 @@
  * ignorant of i18n libraries. `filed` holds `{number}`, replaced with the
  * request number the server answers.
  */
-export type BugReportLabels = {
-  buttonLabel: string;
-  dialogTitle: string;
+export type BugReportKindLabels = {
+  title: string;
+  subtitle: string;
   descriptionLabel: string;
   descriptionPlaceholder: string;
   descriptionRequired: string;
-  /** Live character count against the backend's cap, e.g. "120 / 5000". */
-  characterCount: (used: number, limit: number) => string;
   impactLabel: string;
   impactBlocks: string;
+  impactBlocksHint: string;
   impactWorkaround: string;
+  impactWorkaroundHint: string;
   impactCosmetic: string;
-  contextTitle: string;
+  impactCosmeticHint: string;
+  send: string;
+};
+
+export type BugReportLabels = {
+  bug: BugReportKindLabels;
+  feature: BugReportKindLabels;
+  buttonLabel: string;
+  back: string;
+  kindLabel: string;
+  kindBug: string;
+  kindFeature: string;
+  summaryLabel: string;
+  summaryPlaceholder: string;
+  summaryRequired: string;
+  /** Live character count against the backend's cap, e.g. "120 / 5000". */
+  characterCount: (used: number, limit: number) => string;
+  saved: string;
+  technicalTitle: string;
+  technicalHint: string;
   contextRoute: string;
   contextVersion: string;
   contextRequestId: string;
   contextBrowser: string;
   contextViewport: string;
   contextTimestamp: string;
+  sharedTitle: string;
+  sharedHint: string;
+  sharedBody: string;
+  sensitiveTitle: string;
+  sensitiveBody: string;
   screenshotTitle: string;
   capturePending: string;
   captureFailed: string;
@@ -31,14 +55,28 @@ export type BugReportLabels = {
   uploadRejected: string;
   /** Shown after Send when the annotated PNG was over the backend's cap and was dropped. */
   screenshotTooLarge: string;
+  toolbarLabel: string;
   toolArrow: string;
   toolRect: string;
   toolFreehand: string;
-  toolBlackout: string;
+  toolText: string;
+  toolRedact: string;
+  textInputLabel: string;
   undo: string;
-  send: string;
+  redo: string;
+  zoomOut: string;
+  zoomIn: string;
+  zoomLevel: (percent: number) => string;
+  fit: string;
+  crop: string;
+  replace: string;
+  enterFullscreen: string;
+  exitFullscreen: string;
+  discardTitle: string;
+  discardBody: string;
+  discard: string;
+  keepEditing: string;
   sending: string;
-  cancel: string;
   close: string;
   successTitle: string;
   filed: string;
@@ -49,24 +87,68 @@ export type BugReportLabels = {
   copyManually: string;
 };
 
+/** The app's strings for the editor; `bug` and `feature` merge key by key. */
+export type BugReportLabelOverrides = Partial<Omit<BugReportLabels, "bug" | "feature">> & {
+  bug?: Partial<BugReportKindLabels>;
+  feature?: Partial<BugReportKindLabels>;
+};
+
 export const defaultLabels: BugReportLabels = {
+  bug: {
+    title: "Report a bug",
+    subtitle: "Mark up the screenshot and add details to help us fix the issue faster.",
+    descriptionLabel: "What happened?",
+    descriptionPlaceholder: "Describe what you were doing and what went wrong.",
+    descriptionRequired: "Please describe what happened.",
+    impactLabel: "How much does it get in the way?",
+    impactBlocks: "Blocks my work",
+    impactBlocksHint: "I can't complete my work.",
+    impactWorkaround: "Workaround exists",
+    impactWorkaroundHint: "I can keep working using a workaround.",
+    impactCosmetic: "Cosmetic",
+    impactCosmeticHint: "Minor issue, doesn't affect my work.",
+    send: "Send report",
+  },
+  feature: {
+    title: "Request a feature",
+    subtitle: "Mark up the screenshot and tell us what would help you work better.",
+    descriptionLabel: "What would you like?",
+    descriptionPlaceholder: "Describe what you need and why it would help.",
+    descriptionRequired: "Please describe what you would like.",
+    impactLabel: "How much would it help?",
+    impactBlocks: "I need it for my work",
+    impactBlocksHint: "Part of my work can't be done without it.",
+    impactWorkaround: "It would save me time",
+    impactWorkaroundHint: "I can manage without it, but it takes longer.",
+    impactCosmetic: "Nice to have",
+    impactCosmeticHint: "A small improvement.",
+    send: "Send request",
+  },
   buttonLabel: "Report a bug",
-  dialogTitle: "Report a bug",
-  descriptionLabel: "What happened?",
-  descriptionPlaceholder: "Describe what you were doing and what went wrong.",
-  descriptionRequired: "Please describe the bug.",
-  characterCount: (used, limit) => `${used} / ${limit} characters`,
-  impactLabel: "How much does it get in the way?",
-  impactBlocks: "Blocks my work",
-  impactWorkaround: "Workaround exists",
-  impactCosmetic: "Cosmetic",
-  contextTitle: "What will be sent",
+  back: "Back",
+  kindLabel: "What are you sending?",
+  kindBug: "Bug",
+  kindFeature: "Feature request",
+  summaryLabel: "Summary",
+  summaryPlaceholder: "One line that sums it up",
+  summaryRequired: "Please add a summary.",
+  characterCount: (used, limit) => `${used} / ${limit}`,
+  saved: "All changes saved",
+  technicalTitle: "Technical details",
+  technicalHint: "Browser, page, viewport, and more",
   contextRoute: "Page",
   contextVersion: "Version",
   contextRequestId: "Request id",
   contextBrowser: "Browser",
   contextViewport: "Viewport",
   contextTimestamp: "Time",
+  sharedTitle: "What will be shared",
+  sharedHint: "This screenshot and details will be sent to the product team",
+  sharedBody:
+    "The marked-up screenshot, your summary, description and answers, the technical details, and the page's recent errors and failed requests.",
+  sensitiveTitle: "Please don't include sensitive information",
+  sensitiveBody:
+    "Review your screenshot and remove any personal, confidential, or customer data before sending.",
   screenshotTitle: "Screenshot",
   capturePending: "Taking a screenshot…",
   captureFailed: "The screenshot could not be taken.",
@@ -74,14 +156,28 @@ export const defaultLabels: BugReportLabels = {
   uploadLabel: "Upload an image",
   uploadRejected: "Choose a PNG image no larger than 5 MB.",
   screenshotTooLarge: "The screenshot was over 5 MB, so the report was sent without it.",
+  toolbarLabel: "Screenshot tools",
   toolArrow: "Arrow",
   toolRect: "Box",
   toolFreehand: "Draw",
-  toolBlackout: "Black out",
+  toolText: "Text",
+  toolRedact: "Redact",
+  textInputLabel: "Text on the screenshot",
   undo: "Undo",
-  send: "Send",
+  redo: "Redo",
+  zoomOut: "Zoom out",
+  zoomIn: "Zoom in",
+  zoomLevel: (percent) => `${percent} %`,
+  fit: "Fit",
+  crop: "Crop",
+  replace: "Replace",
+  enterFullscreen: "Full screen",
+  exitFullscreen: "Exit full screen",
+  discardTitle: "Discard this report?",
+  discardBody: "What you wrote and drew will be lost.",
+  discard: "Discard",
+  keepEditing: "Keep editing",
   sending: "Sending…",
-  cancel: "Cancel",
   close: "Close",
   successTitle: "Thank you. Your report was sent.",
   filed: "The report number is #{number}.",
@@ -93,13 +189,20 @@ export const defaultLabels: BugReportLabels = {
 };
 
 /** The app's strings over the English defaults. An explicit `undefined` keeps the default. */
-export function mergeLabels(overrides?: Partial<BugReportLabels>): BugReportLabels {
-  const merged: BugReportLabels = { ...defaultLabels };
-  for (const key of Object.keys(overrides ?? {}) as (keyof BugReportLabels)[]) {
-    const value = overrides?.[key];
-    if (value !== undefined) Object.assign(merged, { [key]: value });
-  }
-  return merged;
+export function mergeLabels(overrides?: BugReportLabelOverrides): BugReportLabels {
+  const { bug, feature, ...rest } = overrides ?? {};
+  return {
+    ...defaultLabels,
+    ...definedOnly(rest),
+    bug: { ...defaultLabels.bug, ...definedOnly(bug) },
+    feature: { ...defaultLabels.feature, ...definedOnly(feature) },
+  };
+}
+
+function definedOnly<T extends object>(part: Partial<T> | undefined): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(part ?? {}).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
 }
 
 /** Replaces every `{number}` in a label template with the request number. */
