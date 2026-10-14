@@ -150,7 +150,7 @@ function pointFrom(event, crop) {
         y: ((event.clientY - box.top - canvas.clientTop) / canvas.clientHeight) * crop.height + crop.y,
     };
 }
-export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange, classNames }, ref) {
+export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange, classNames, allowReplace = true, }, ref) {
     const canvasRef = useRef(null);
     const inputRef = useRef(null);
     const imageRef = useRef(null);
@@ -319,6 +319,8 @@ export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labe
     }, [onImageChosen]);
     // WHY: on document, not onPaste: the pane is a plain div with no tabindex, so a paste goes to whatever has focus.
     useEffect(() => {
+        if (!allowReplace)
+            return;
         const onPaste = (event) => {
             const file = event.clipboardData?.files[0];
             if (file?.type.startsWith("image/")) {
@@ -328,7 +330,7 @@ export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labe
         };
         document.addEventListener("paste", onPaste);
         return () => document.removeEventListener("paste", onPaste);
-    }, [readFile]);
+    }, [readFile, allowReplace]);
     const crop = natural ? cropOf(history.done, natural) : null;
     const percent = zoom ?? fit;
     const scale = percent / 100;
@@ -356,9 +358,9 @@ export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labe
                                         : labels.toolRedact }, value))), _jsx("button", { type: "button", ...partProps(classNames, "tool"), disabled: history.done.length === 0, onClick: () => setHistory(undoHistory(historyRef.current)), children: labels.undo }), _jsx("button", { type: "button", ...partProps(classNames, "tool"), disabled: history.undone.length === 0, onClick: () => setHistory(redoHistory(historyRef.current)), children: labels.redo }), _jsx("button", { type: "button", ...partProps(classNames, "tool"), disabled: percent <= ZOOM_STEPS[0], onClick: () => zoomBy(-1), children: labels.zoomOut }), _jsx("output", { ...partProps(classNames, "zoom-level"), children: labels.zoomLevel(percent) }), _jsx("button", { type: "button", ...partProps(classNames, "tool"), disabled: percent >= ZOOM_STEPS[ZOOM_STEPS.length - 1], onClick: () => zoomBy(1), children: labels.zoomIn }), _jsx("button", { type: "button", ...partProps(classNames, "tool"), onClick: () => setZoom(null), children: labels.fit }), _jsx("button", { type: "button", "aria-pressed": tool === "crop", ...partProps(classNames, "tool"), onClick: () => {
                             commitText();
                             setTool("crop");
-                        }, children: labels.crop })] })) : null, _jsx("button", { type: "button", ...partProps(classNames, "tool"), onClick: () => inputRef.current?.click(), children: labels.replace }), _jsx("button", { type: "button", "aria-pressed": expanded, ...partProps(classNames, "tool"), onClick: onToggleExpanded, children: expanded ? labels.exitFullscreen : labels.enterFullscreen })] }));
+                        }, children: labels.crop })] })) : null, allowReplace ? (_jsx("button", { type: "button", ...partProps(classNames, "tool"), onClick: () => inputRef.current?.click(), children: labels.replace })) : null, _jsx("button", { type: "button", "aria-pressed": expanded, ...partProps(classNames, "tool"), onClick: onToggleExpanded, children: expanded ? labels.exitFullscreen : labels.enterFullscreen })] }));
     if (!dataUrl) {
-        return (_jsxs("div", { children: [toolbar, _jsxs("div", { ...partProps(classNames, "placeholder"), children: [_jsx("span", { children: labels.captureFailed }), _jsx("span", { children: labels.captureFallbackHint }), upload, rejection] })] }));
+        return (_jsxs("div", { children: [toolbar, _jsxs("div", { ...partProps(classNames, "placeholder"), children: [_jsx("span", { children: labels.captureFailed }), _jsx("span", { children: labels.captureFallbackHint }), allowReplace ? upload : null, rejection] })] }));
     }
     return (_jsxs("div", { children: [toolbar, _jsx("div", { ...partProps(classNames, "canvas-scroll"), children: _jsxs("div", { ...partProps(classNames, "canvas-stage"), style: { position: "relative" }, children: [_jsx("canvas", { ref: canvasRef, role: "img", "aria-label": labels.screenshotTitle, ...partProps(classNames, "canvas"), style: {
                                 touchAction: "none",
@@ -413,5 +415,5 @@ export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labe
                                 position: "absolute",
                                 left: (text.at.x - crop.x) * scale,
                                 top: (text.at.y - crop.y) * scale,
-                            } }, text.id)) : null] }) }), rejection, upload] }));
+                            } }, text.id)) : null] }) }), rejection, allowReplace ? upload : null] }));
 });
