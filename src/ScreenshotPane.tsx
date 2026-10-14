@@ -163,16 +163,50 @@ export function paintScene(
   shapes.forEach((shape) => paint(ctx, shape));
 }
 
+const SELECTION_DIM = "rgba(0, 0, 0, 0.5)";
+const SELECTION_TEXT_PX = 14;
+
+/**
+ * Dims the part of `within` outside `selection`, then outlines the selection and
+ * labels it with its size in image pixels. Runs in image coordinates, so it must
+ * follow paintScene's translate.
+ */
+function paintSelection(ctx: CanvasRenderingContext2D, within: Rect, selection: Rect): void {
+  const selectionRight = selection.x + selection.width;
+  const selectionBottom = selection.y + selection.height;
+  ctx.save();
+  ctx.fillStyle = SELECTION_DIM;
+  ctx.fillRect(within.x, within.y, within.width, selection.y - within.y);
+  ctx.fillRect(within.x, selectionBottom, within.width, within.y + within.height - selectionBottom);
+  ctx.fillRect(within.x, selection.y, selection.x - within.x, selection.height);
+  ctx.fillRect(selectionRight, selection.y, within.x + within.width - selectionRight, selection.height);
+
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.strokeRect(selection.x, selection.y, selection.width, selection.height);
+
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `${SELECTION_TEXT_PX}px sans-serif`;
+  const above = selection.y - within.y >= SELECTION_TEXT_PX + 6;
+  const textY = above ? selection.y - 6 : selection.y + SELECTION_TEXT_PX + 4;
+  ctx.fillText(`${selection.width} × ${selection.height}`, selection.x + 4, textY);
+  ctx.restore();
+}
+
 function paintCanvas(
   canvas: HTMLCanvasElement,
   image: CanvasImageSource,
   crop: Rect,
   shapes: Shape[],
+  selection?: Rect,
 ) {
   if (canvas.width !== crop.width) canvas.width = crop.width;
   if (canvas.height !== crop.height) canvas.height = crop.height;
   const ctx = canvas.getContext("2d");
-  if (ctx) paintScene(ctx, image, crop, shapes);
+  if (!ctx) return;
+  paintScene(ctx, image, crop, shapes);
+  if (selection) paintSelection(ctx, crop, selection);
 }
 
 function shapesOf(done: Step[]): Shape[] {
@@ -300,7 +334,9 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
 
       const crop = cropOf(history.done, natural);
       const pending = active?.kind === "shape" ? [active.shape] : [];
-      paintCanvas(canvas, image, crop, [...shapesOf(history.done), ...pending]);
+      // WHY: the selection overlay is passed only here; toBlob and the committed state must never carry it.
+      const selection = active?.kind === "crop" ? cropRect(active.from, active.to, crop) : undefined;
+      paintCanvas(canvas, image, crop, [...shapesOf(history.done), ...pending], selection);
     }, [natural, history, active]);
 
     // WHY: keyed on dataUrl alone; depending on redraw would reload the Image mid-stroke and wipe the drawing.

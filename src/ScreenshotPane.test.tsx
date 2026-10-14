@@ -228,6 +228,52 @@ describe("the screenshot pane", () => {
     expect(canvas.width).toBe(800);
   });
 
+  it("shows the selection while a crop drag is in progress", async () => {
+    const { canvas, user } = await renderPane();
+    await user.click(tool(defaultLabels.crop));
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 100, clientY: 50 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 300, clientY: 150 });
+
+    await waitFor(() =>
+      expect(lastPaint().some((call) => call.name === "strokeRect" && call.args.join() === "100,50,200,100")).toBe(true),
+    );
+    const paint = lastPaint();
+    const dimmed = paint.filter((call) => call.name === "fillRect");
+    expect(dimmed.map((call) => call.args.join())).toEqual(["0,0,800,50", "0,150,800,450", "0,50,100,100", "300,50,500,100"]);
+    expect(dimmed.every((call) => call.fillStyle.startsWith("rgba"))).toBe(true);
+    expect(paint.some((call) => call.name === "setLineDash")).toBe(true);
+    expect(paint.some((call) => call.name === "fillText" && call.args[0] === "200 × 100")).toBe(true);
+  });
+
+  it("shows a selection under the minimum size while dragging, and does not commit it", async () => {
+    const { canvas, user } = await renderPane();
+    await user.click(tool(defaultLabels.crop));
+    fireEvent.pointerDown(canvas, { button: 0, pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 15, clientY: 15 });
+
+    await waitFor(() =>
+      expect(lastPaint().some((call) => call.name === "fillText" && call.args[0] === "5 × 5")).toBe(true),
+    );
+    fireEvent.pointerUp(canvas, { pointerId: 1, clientX: 15, clientY: 15 });
+    await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    expect(canvas.width).toBe(800);
+  });
+
+  it("keeps the selection out of the export after a crop", async () => {
+    const { ref, canvas, user } = await renderPane();
+    await user.click(tool(defaultLabels.crop));
+    drag(canvas, [100, 50], [300, 150]);
+    await waitFor(() => expect(canvas.width).toBe(200));
+
+    await ref.current!.toBlob();
+    const names = lastPaint().map((call) => call.name);
+    expect(names).toContain("drawImage");
+    expect(names).not.toContain("fillRect");
+    expect(names).not.toContain("strokeRect");
+    expect(names).not.toContain("setLineDash");
+    expect(names).not.toContain("fillText");
+  });
+
   it("writes text onto the image, and Escape drops only the text", async () => {
     const { ref, canvas, user } = await renderPane();
     await user.click(tool(defaultLabels.toolText));

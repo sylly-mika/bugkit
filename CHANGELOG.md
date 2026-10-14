@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1
+
+- Crop shows the selection while dragging: the area outside is dimmed, the
+  box is outlined dashed, and its size in image pixels is shown beside it.
+  The export and the committed picture never include the overlay.
+
 ## v0.2.0
 
 - Form parts `kind` (`bug` or `feature`; absent or empty is a bug; any other
