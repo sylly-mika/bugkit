@@ -107,7 +107,7 @@ func TestRelayFilesTheReport(t *testing.T) {
 	}
 
 	g := onlyRequest(t, f)
-	want := []string{"description", "impact", "area", "diagnostics", "version", "viewport",
+	want := []string{"kind", "description", "impact", "area", "diagnostics", "version", "viewport",
 		"user_agent", "request_id", "reporter_name", "reporter_email", "screenshot"}
 	if got := partNames(g.Parts); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("parts = %v, want %v", got, want)
