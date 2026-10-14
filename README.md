@@ -89,7 +89,8 @@ check, if it has one), for example `POST /api/v1/bug-reports`; with echo,
 `multipart/form-data` of up to 6 MiB, with a screenshot of up to 5 MiB: raise
 any smaller body limit on this route.
 
-The browser sends the parts `description`, `impact` (`blocks`, `workaround`
+The browser sends the parts `kind` (`bug` or `feature`), `summary` (one line),
+`description`, `impact` (`blocks`, `workaround`
 or `cosmetic`), `area` (the route path, starting with `/`), `diagnostics`
 (JSON), `version`, `viewport`, `request_id` and the file part `screenshot`
 (PNG). The handler adds `user_agent` from the request (cut to 256 characters)
@@ -176,6 +177,8 @@ own sink.
 
 | part | required | cap |
 |---|---|---|
+| `kind` | no | `bug` or `feature`; absent or empty is `bug` |
+| `summary` | no | 200, one line |
 | `description` | yes | 5000 |
 | `impact` | yes | `blocks`, `workaround` or `cosmetic` |
 | `area` | yes | 512, starts with `/` |
