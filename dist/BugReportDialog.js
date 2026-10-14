@@ -155,6 +155,8 @@ export function BugReportDialog(props) {
         // rejects rather than resolving null would otherwise leave the dialog stuck
         // on "sending", with Escape and Cancel both refusing to close it.
         let payload = {
+            kind: "bug",
+            summary: "",
             description: description.trim(),
             impact,
             context,
