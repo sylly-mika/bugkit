@@ -17,8 +17,10 @@ vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
 describe("package entry", () => {
   it("exports exactly the public names", () => {
     expect(Object.keys(kit).sort()).toEqual([
+      "BUG_KINDS",
       "BugReportButton",
       "BugReportDialog",
+      "SUMMARY_LIMIT",
       "buildBugReportForm",
       "defaultLabels",
     ]);

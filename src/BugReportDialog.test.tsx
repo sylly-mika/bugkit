@@ -217,6 +217,8 @@ describe("BugReportDialog", () => {
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith(
       reportAsText({
+        kind: "bug",
+        summary: "",
         description: "Send failed",
         impact: "workaround",
         context,
