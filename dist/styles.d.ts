@@ -27,22 +27,118 @@ export declare const styles: {
         fontSize: string;
         fontWeight: number;
     };
-    columns: {
+    editor: {
+        position: "relative";
         display: "flex";
-        flexWrap: "wrap";
+        flexDirection: "column";
         gap: number;
+        boxSizing: "border-box";
+        width: string;
+        height: string;
+        padding: number;
+        borderRadius: string;
+        background: string;
+        color: "var(--color-card-foreground, #171717)";
+        fontSize: string;
+        overflow: "hidden";
+    };
+    header: {
+        display: "flex";
         alignItems: "flex-start";
+        gap: number;
     };
-    imageColumn: {
-        flex: string;
-        minWidth: number;
-    };
-    formColumn: {
-        flex: string;
+    headerText: {
+        flex: number;
         minWidth: number;
         display: "flex";
         flexDirection: "column";
         gap: number;
+    };
+    headerEnd: {
+        display: "flex";
+        alignItems: "center";
+        gap: number;
+    };
+    iconButton: {
+        padding: string;
+        border: string;
+        borderRadius: string;
+        background: string;
+        color: "inherit";
+        font: "inherit";
+        cursor: "pointer";
+    };
+    body: {
+        display: "flex";
+        flexWrap: "wrap";
+        gap: number;
+        flex: number;
+        minHeight: number;
+        alignItems: "stretch";
+    };
+    imageColumn: {
+        flex: string;
+        minWidth: number;
+        minHeight: number;
+        overflow: "auto";
+    };
+    formColumn: {
+        flex: string;
+        minWidth: number;
+        minHeight: number;
+        overflowY: "auto";
+        display: "flex";
+        flexDirection: "column";
+        gap: number;
+    };
+    section: {
+        display: "flex";
+        flexDirection: "column";
+        gap: number;
+    };
+    input: {
+        width: string;
+        boxSizing: "border-box";
+        padding: number;
+        border: string;
+        borderRadius: string;
+        background: string;
+        color: "var(--color-foreground, #171717)";
+        font: "inherit";
+    };
+    disclosure: {
+        alignSelf: "flex-start";
+        padding: number;
+        border: string;
+        background: string;
+        color: "inherit";
+        font: "inherit";
+        fontWeight: number;
+        cursor: "pointer";
+    };
+    note: {
+        display: "flex";
+        flexDirection: "column";
+        gap: number;
+        padding: number;
+        borderRadius: string;
+        background: string;
+    };
+    confirm: {
+        position: "absolute";
+        top: string;
+        left: string;
+        transform: "translateX(-50%)";
+        width: number;
+        maxWidth: string;
+        boxSizing: "border-box";
+        display: "flex";
+        flexDirection: "column";
+        gap: number;
+        padding: number;
+        borderRadius: string;
+        background: string;
+        boxShadow: "0 8px 32px rgba(0,0,0,0.25)";
     };
     label: {
         display: "block";
@@ -85,6 +181,31 @@ export declare const styles: {
         maxWidth: string;
         border: string;
         borderRadius: string;
+    };
+    canvasScroll: {
+        overflow: "auto";
+        maxHeight: string;
+    };
+    canvasStage: {
+        position: "relative";
+        display: "inline-block";
+        maxWidth: string;
+    };
+    textInput: {
+        position: "absolute";
+        minWidth: number;
+        padding: string;
+        border: string;
+        background: string;
+        color: "#e11d48";
+        font: "600 14px system-ui, sans-serif";
+    };
+    zoomLevel: {
+        minWidth: number;
+        display: "inline-flex";
+        alignItems: "center";
+        justifyContent: "center";
+        fontSize: string;
     };
     contextTable: {
         width: string;
