@@ -130,6 +130,8 @@ func findPart(parts []gotPart, name string) (gotPart, bool) {
 
 func fullReport() bugkit.Report {
 	return bugkit.Report{
+		Kind:        "feature",
+		Summary:     "Export the plan list",
 		Description: "Save fails",
 		Impact:      "blocks",
 		Area:        "/tasks/1",
@@ -169,12 +171,14 @@ func TestSubmitSendsTheIntakeForm(t *testing.T) {
 		t.Fatalf("Content-Type = %q", g.ContentType)
 	}
 
-	want := []string{"description", "impact", "area", "diagnostics", "version", "viewport",
+	want := []string{"kind", "summary", "description", "impact", "area", "diagnostics", "version", "viewport",
 		"user_agent", "request_id", "reporter_name", "reporter_email", "screenshot"}
 	if got := partNames(g.Parts); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("parts = %v, want %v", got, want)
 	}
 	values := map[string]string{
+		"kind":           "feature",
+		"summary":        "Export the plan list",
 		"description":    "Save fails",
 		"impact":         "blocks",
 		"area":           "/tasks/1",
@@ -211,6 +215,7 @@ func TestSubmitLeavesEmptyOptionalPartsOut(t *testing.T) {
 	c := intake.New(url, testKey())
 	const diag = "{ \"a\" : [1, 2] }\n"
 	r := bugkit.Report{
+		Kind:        "bug",
 		Description: "  two spaces",
 		Impact:      "cosmetic",
 		Area:        "/",
@@ -221,8 +226,11 @@ func TestSubmitLeavesEmptyOptionalPartsOut(t *testing.T) {
 		t.Fatalf("Submit: %v", err)
 	}
 	g := onlyRequest(t, f)
-	if got := partNames(g.Parts); strings.Join(got, ",") != "description,impact,area,diagnostics" {
-		t.Fatalf("parts = %v, want description,impact,area,diagnostics", got)
+	if got := partNames(g.Parts); strings.Join(got, ",") != "kind,description,impact,area,diagnostics" {
+		t.Fatalf("parts = %v, want kind,description,impact,area,diagnostics", got)
+	}
+	if p, _ := findPart(g.Parts, "kind"); string(p.Value) != "bug" {
+		t.Fatalf("kind = %q, want bug", p.Value)
 	}
 	if p, _ := findPart(g.Parts, "description"); string(p.Value) != "  two spaces" {
 		t.Fatalf("description = %q, want it untrimmed", p.Value)

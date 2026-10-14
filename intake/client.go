@@ -109,6 +109,8 @@ func form(who bugkit.Reporter, r bugkit.Report) (body *bytes.Buffer, contentType
 		name, value string
 		always      bool
 	}{
+		{"kind", r.Kind, true},
+		{"summary", r.Summary, false},
 		{"description", r.Description, true},
 		{"impact", r.Impact, true},
 		{"area", r.Area, true},
