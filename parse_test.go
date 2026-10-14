@@ -31,6 +31,11 @@ func TestRefusal422OnBadFields(t *testing.T) {
 			f["version"] = strings.Repeat("v", 129)
 			f["request_id"] = strings.Repeat("r", 129)
 		}, "Version must be at most 128 characters."},
+		{"kind not allowed", func(f map[string]string) { f["kind"] = "urgent" }, "Kind must be bug or feature."},
+		{"kind wrong case", func(f map[string]string) { f["kind"] = "Bug" }, "Kind must be bug or feature."},
+		{"summary too long", func(f map[string]string) { f["summary"] = strings.Repeat("é", 201) }, "Summary must be at most 200 characters."},
+		{"kind before description", func(f map[string]string) { f["kind"] = "x"; f["description"] = "" }, "Kind must be bug or feature."},
+		{"summary before description", func(f map[string]string) { f["summary"] = strings.Repeat("s", 201); f["description"] = "" }, "Summary must be at most 200 characters."},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -43,6 +48,24 @@ func TestRefusal422OnBadFields(t *testing.T) {
 				t.Fatalf("sink calls = %d, want 0", sink.calls)
 			}
 		})
+	}
+}
+
+func TestSummaryCapCountsRunesAndFollowsTheLimits(t *testing.T) {
+	sink := newFakeSink()
+	fields := validParts()
+	fields["summary"] = strings.Repeat("é", 200)
+	if rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil); rec.Code != http.StatusCreated {
+		t.Fatalf("200 runes: status = %d, want 201\n%s", rec.Code, rec.Body.String())
+	}
+
+	cfg := Config{Sink: sink, Who: whoMiky, Limits: Limits{Summary: 10}}
+	fields["summary"] = strings.Repeat("s", 11)
+	assertProblem(t, post(t, cfg, fields, nil), http.StatusUnprocessableEntity, "Summary must be at most 10 characters.")
+
+	fields["summary"] = strings.Repeat("s", 10)
+	if rec := post(t, cfg, fields, nil); rec.Code != http.StatusCreated {
+		t.Fatalf("10 runes with Summary limit 10: status = %d, want 201\n%s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -69,7 +92,7 @@ func TestCapsCountRunesAndBytes(t *testing.T) {
 }
 
 func TestHandlerUsesTheConfiguredLimits(t *testing.T) {
-	want := Limits{Description: 5000, Area: 512, Version: 128, Viewport: 64, RequestID: 128, UserAgent: 256, Diagnostics: 32768, Screenshot: 5242880}
+	want := Limits{Summary: 200, Description: 5000, Area: 512, Version: 128, Viewport: 64, RequestID: 128, UserAgent: 256, Diagnostics: 32768, Screenshot: 5242880}
 	if got := DefaultLimits(); got != want {
 		t.Fatalf("DefaultLimits() = %+v, want %+v", got, want)
 	}
