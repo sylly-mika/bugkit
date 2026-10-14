@@ -149,9 +149,9 @@ export function BugButton() {
   throw the server's `detail` sentence.
 - `getContext(): BugReportContext`: `{ area, version, requestId? }`, read when
   the button is pressed. `area` is the current route path.
-- `labels?: Partial<BugReportLabels>`: overrides of the English
-  `defaultLabels`. `filed` is the success sentence; `{number}` in it becomes
-  the request's number.
+- `labels?: BugReportLabelOverrides`: overrides of the English
+  `defaultLabels`; `bug` and `feature` merge key by key. `filed` is the success
+  sentence; `{number}` in it becomes the request's number.
 - `diagnostics?: () => unknown`: extra context, sent inside the
   `diagnostics` JSON.
 - `allowedImageOrigins?: string[]`: image origins besides the page's own that
@@ -160,8 +160,9 @@ export function BugButton() {
 
 The package exports `BugReportButton`, `BugReportDialog`, `defaultLabels`,
 `buildBugReportForm` (the form the dialog sends) and the types
-`BugReportButtonProps`, `BugReportLabels`, `BugReportContext`,
-`BugReportResult` and `BugReportSubmit`.
+`BugReportButtonProps`, `BugReportLabels`, `BugReportKindLabels`,
+`BugReportLabelOverrides`, `BugReportContext`, `BugReportResult` and
+`BugReportSubmit`.
 
 ## The intake route
 

@@ -13,6 +13,18 @@
   exported; `buildBugReportForm` and `reportAsText` carry the kind and the
   summary.
 - A report without `kind` or `summary` is still accepted as a bug.
+- The report opens as a full-viewport editor: header with Back, Send and the
+  save state; the screenshot with its markup toolbar on the left; the form on
+  the right.
+- Bug / Feature request switch: the choice rewords every string of the form.
+- Summary field, sent trimmed with the report.
+- Screenshot tools: Box, Arrow, Draw, Text and Redact (black-out), Crop, Undo
+  and Redo, zoom with Fit, and full screen for the picture. Every mark, crop and
+  redaction is burned into the sent PNG.
+- Drafts survive a reload of the tab (per-tab storage) until the report is sent
+  or discarded; Back and Escape ask before discarding typed text or marks.
+- Breaking: `BugReportLabels` is reshaped (`dialogTitle`, `toolBlackout`, the
+  description and impact labels move under `bug`/`feature`).
 
 ## v0.1.0
 
