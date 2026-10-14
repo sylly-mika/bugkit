@@ -41,6 +41,7 @@ export const BUG_REPORT_PARTS = [
   "canvas-stage",
   "canvas",
   "text-input",
+  "editor",
 ] as const;
 
 export type BugReportPart = (typeof BUG_REPORT_PARTS)[number];

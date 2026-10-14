@@ -42,6 +42,7 @@ export type ScreenshotPaneProps = {
   onToggleExpanded: () => void;
   onMarkupChange?: (marked: boolean) => void;
   classNames?: BugReportClassNames;
+  allowReplace?: boolean;
 };
 
 const STROKE = "#e11d48";
@@ -237,7 +238,16 @@ function pointFrom(event: ReactPointerEvent<HTMLCanvasElement>, crop: Rect): Poi
 
 export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPaneProps>(
   function ScreenshotPane(
-    { dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange, classNames },
+    {
+      dataUrl,
+      labels,
+      onImageChosen,
+      expanded,
+      onToggleExpanded,
+      onMarkupChange,
+      classNames,
+      allowReplace = true,
+    },
     ref,
   ) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -431,6 +441,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
 
     // WHY: on document, not onPaste: the pane is a plain div with no tabindex, so a paste goes to whatever has focus.
     useEffect(() => {
+      if (!allowReplace) return;
       const onPaste = (event: ClipboardEvent) => {
         const file = event.clipboardData?.files[0];
         if (file?.type.startsWith("image/")) {
@@ -441,7 +452,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
 
       document.addEventListener("paste", onPaste);
       return () => document.removeEventListener("paste", onPaste);
-    }, [readFile]);
+    }, [readFile, allowReplace]);
 
     const crop = natural ? cropOf(history.done, natural) : null;
     const percent = zoom ?? fit;
@@ -548,9 +559,11 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
             </button>
           </>
         ) : null}
-        <button type="button" {...partProps(classNames, "tool")} onClick={() => inputRef.current?.click()}>
-          {labels.replace}
-        </button>
+        {allowReplace ? (
+          <button type="button" {...partProps(classNames, "tool")} onClick={() => inputRef.current?.click()}>
+            {labels.replace}
+          </button>
+        ) : null}
         <button
           type="button"
           aria-pressed={expanded}
@@ -569,7 +582,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
           <div {...partProps(classNames, "placeholder")}>
             <span>{labels.captureFailed}</span>
             <span>{labels.captureFallbackHint}</span>
-            {upload}
+            {allowReplace ? upload : null}
             {rejection}
           </div>
         </div>
@@ -659,7 +672,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
           </div>
         </div>
         {rejection}
-        {upload}
+        {allowReplace ? upload : null}
       </div>
     );
   },
