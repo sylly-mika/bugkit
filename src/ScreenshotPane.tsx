@@ -116,8 +116,7 @@ function paint(ctx: CanvasRenderingContext2D, shape: Shape) {
   }
 
   if (shape.tool === "redact") {
-    // WHY: opaque, not translucent. This is what covers a customer name before
-    // the image leaves the browser, and the object it lands on is public-read.
+    // WHY: opaque, not translucent; this is what hides a customer name before the image leaves the browser.
     ctx.fillStyle = "#000000";
     ctx.fillRect(
       Math.min(from.x, to.x),
@@ -192,9 +191,7 @@ function cropRect(from: Point, to: Point, within: Rect): Rect {
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
-// WHY: client points are scaled by the crop, not the bitmap, and offset by its
-// origin. A drag inside a crop has to land on the same image pixel that the
-// exported bitmap shows at that spot.
+// WHY: pointer coordinates are scaled and offset by the crop, so a drag lands on the pixel the export shows.
 function pointFrom(event: ReactPointerEvent<HTMLCanvasElement>, crop: Rect): Point {
   const canvas = event.currentTarget;
   const box = canvas.getBoundingClientRect();
@@ -306,12 +303,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       paintCanvas(canvas, image, crop, [...shapesOf(history.done), ...pending]);
     }, [natural, history, active]);
 
-    // Keyed on dataUrl ALONE, deliberately. redraw's identity changes with every
-    // shape, and a pointer drag appends a point per move — so depending on it
-    // here would reload the Image mid-stroke, dozens of times a second, wiping
-    // the drawing as it is being drawn. Clearing the stacks on a new image is in
-    // the cleanup: annotations drawn on the old picture would land in the wrong
-    // place on the new one.
+    // WHY: keyed on dataUrl alone; depending on redraw would reload the Image mid-stroke and wipe the drawing.
     useEffect(() => {
       if (!dataUrl) return;
 
@@ -336,10 +328,6 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       };
     }, [dataUrl, setActive, setHistory, setText]);
 
-    // One repaint per frame, not one per pointermove. A drag delivers moves far
-    // faster than the display refreshes, so coalescing here keeps a full-page
-    // bitmap plus the whole shape list from being redrawn several times between
-    // two frames.
     useEffect(() => {
       if (!natural) return;
 
@@ -347,8 +335,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       return () => cancelAnimationFrame(frame);
     }, [natural, redraw]);
 
-    // Runs after every render: the readout follows the canvas's real size, and
-    // a window resize changes that size without any render of ours.
+    // WHY: no dependency array; a window resize changes the canvas size without a render of ours.
     useEffect(() => {
       const measure = () => {
         const canvas = canvasRef.current;
@@ -366,8 +353,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
     useImperativeHandle(
       ref,
       () => ({
-        // Flattened only here: while editing, the steps stay a list so undo is a
-        // pop rather than a re-render of a burned-in bitmap.
+        // WHY: flattened only here; while editing, steps stay a list so undo is a pop, not a re-render.
         toBlob() {
           commitText();
           const canvas = canvasRef.current;
@@ -394,9 +380,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       (file: File | null | undefined) => {
         if (!file) return;
 
-        // `accept` is advisory — a drag-and-drop, or a file manager that ignores
-        // it, still reaches this handler — so the type and the size are checked
-        // here rather than trusted from the picker.
+        // WHY: `accept` is advisory; drag-and-drop still reaches this handler, so type and size are checked here.
         if (file.type !== UPLOAD_MIME || file.size > UPLOAD_LIMIT_BYTES) {
           setRejected(true);
           return;
@@ -413,9 +397,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       [onImageChosen],
     );
 
-    // On `document`, not as an onPaste prop: a paste goes to whatever has focus,
-    // and this pane is a plain <div> with no tabindex. Removed on unmount, so it
-    // cannot swallow pastes once the dialog is closed.
+    // WHY: on document, not onPaste: the pane is a plain div with no tabindex, so a paste goes to whatever has focus.
     useEffect(() => {
       const onPaste = (event: ClipboardEvent) => {
         const file = event.clipboardData?.files[0];
@@ -452,10 +434,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       />
     );
 
-    // Both states can reject a file: the placeholder through its picker, the
-    // editor through the document-level paste above. Rendering this only in the
-    // placeholder meant a pasted JPEG over a successful capture was dropped in
-    // silence.
+    // WHY: render the error in both states; a pasted file over a capture is otherwise dropped silently.
     const rejection = rejected ? (
       <p role="alert" style={styles.error}>
         {labels.uploadRejected}
@@ -581,9 +560,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
                 ...(crop && zoom !== null ? { width: `${Math.round((crop.width * zoom) / 100)}px` } : {}),
               }}
               onPointerDown={(event) => {
-                // Primary button only. A right-click opens the context menu and
-                // never delivers a pointerup here, so drawing on one starts a shape
-                // that then follows the pointer around with nothing to end it.
+                // WHY: primary button only; a right-click sends no pointerup, so the shape would never end.
                 if (event.button !== 0) return;
                 const bounds = currentCrop();
                 if (!bounds) return;
@@ -615,15 +592,10 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
                 }
 
                 const next = extendShape(current.shape, at);
-                // extendShape hands back the same shape for a freehand step too
-                // small to be a line. Skipping the update means React bails out of
-                // the render rather than re-rendering with an unchanged list.
                 if (next !== current.shape) setActive({ kind: "shape", shape: next });
               }}
               onPointerUp={finish}
-              // A drag interrupted by the system — a touch becoming a scroll, the
-              // tab losing the pointer — delivers one of these and no pointerup.
-              // Ending the drag here keeps the next mousemove from drawing on.
+              // WHY: a system-interrupted drag gets no pointerup; ending it here stops the next mousemove drawing.
               onPointerCancel={finish}
               onLostPointerCapture={finish}
             />
