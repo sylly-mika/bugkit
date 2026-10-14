@@ -2,13 +2,13 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog } from "./BugReportDialog.js";
-import type { BugReportLabels } from "./labels.js";
+import type { BugReportKindLabels, BugReportLabels } from "./labels.js";
 import type { BugReportContext, BugReportEnvironment } from "./payload.js";
 
 // The dialog's own file drives the real pane, which in jsdom can only ever
 // answer null — it loads no image, so there is nothing to flatten. What the
 // dialog does with the answers a browser gives has to be driven from a stand-in.
-const pane = vi.hoisted(() => ({ toBlob: vi.fn() }));
+const pane = vi.hoisted(() => ({ toBlob: vi.fn(), cancelText: () => false }));
 
 vi.mock("./ScreenshotPane.js", async () => {
   const { forwardRef, useImperativeHandle } = await import("react");
@@ -26,9 +26,14 @@ vi.mock("./ScreenshotPane.js", async () => {
 // stay a function.
 const TEMPLATES: Record<string, string> = { filed: "issue {number}" };
 
+const kindLabels = (kind: "bug" | "feature") =>
+  new Proxy({} as BugReportKindLabels, { get: (_t, key) => `${kind}.${String(key)}` });
+
 const labels = new Proxy({} as BugReportLabels, {
   get: (_t, key) => {
+    if (key === "bug" || key === "feature") return kindLabels(key);
     if (key === "characterCount") return (used: number, limit: number) => `${used} / ${limit}`;
+    if (key === "zoomLevel") return (percent: number) => `${percent} %`;
     return TEMPLATES[String(key)] ?? String(key);
   },
 });
@@ -64,8 +69,9 @@ function renderDialog(
 }
 
 async function fillAndSend(user: ReturnType<typeof userEvent.setup>, text: string) {
-  await user.type(screen.getByLabelText("descriptionLabel"), text);
-  await user.click(screen.getByRole("button", { name: "send" }));
+  await user.type(screen.getByLabelText("summaryLabel"), "Summary");
+  await user.type(screen.getByLabelText("bug.descriptionLabel"), text);
+  await user.click(screen.getByRole("button", { name: "bug.send" }));
 }
 
 describe("BugReportDialog and the screenshot it is handed", () => {
@@ -128,9 +134,9 @@ describe("BugReportDialog and the screenshot it is handed", () => {
     expect(await screen.findByText("screenshotTooLarge")).toBeInTheDocument();
   });
 
-  // Awaited inside the dialog's own try, so a handle that rejects lands in the
+  // WHY: awaited inside the dialog's own try, so a handle that rejects lands in the
   // failure state with the reporter's words intact — rather than leaving the
-  // dialog on "sending" for ever, where Escape and Cancel both refuse to close.
+  // dialog on "sending" for ever, where Escape and Back both refuse to close.
   it("does not strand the dialog when the export rejects", async () => {
     const user = userEvent.setup();
     pane.toBlob.mockRejectedValue(new Error("tainted canvas"));
@@ -140,7 +146,7 @@ describe("BugReportDialog and the screenshot it is handed", () => {
 
     expect(await screen.findByText("failureTitle")).toBeInTheDocument();
     expect(submit).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "cancel" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "back" })).toHaveAttribute(
       "aria-disabled",
       "false",
     );

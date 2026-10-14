@@ -40,6 +40,7 @@ describe("package entry", () => {
     expect(screen.getByRole("button", { name: "Report" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Report" }));
+    await user.type(await screen.findByLabelText(kit.defaultLabels.summaryLabel), "Save");
     await user.type(await screen.findByLabelText(kit.defaultLabels.bug.descriptionLabel), "Save fails");
     await user.click(screen.getByLabelText(kit.defaultLabels.bug.impactBlocks));
     await user.click(screen.getByRole("button", { name: kit.defaultLabels.bug.send }));

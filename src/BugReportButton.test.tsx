@@ -75,6 +75,7 @@ describe("BugReportButton", () => {
     area = "/after";
 
     await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Summary");
     await user.type(await screen.findByLabelText(defaultLabels.bug.descriptionLabel), "Broken save");
     await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
 
@@ -98,6 +99,7 @@ describe("BugReportButton", () => {
     render(<BugReportButton submit={submit} getContext={getContext} />);
 
     await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Summary");
     await user.type(await screen.findByLabelText(defaultLabels.bug.descriptionLabel), "No diagnostics");
     await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
 

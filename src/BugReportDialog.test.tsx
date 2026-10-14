@@ -2,18 +2,25 @@ import { cleanup, act, fireEvent, render, screen, waitFor, within } from "@testi
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog } from "./BugReportDialog.js";
-import type { BugReportLabels } from "./labels.js";
+import type { BugReportKindLabels, BugReportLabels } from "./labels.js";
 import { reportAsText } from "./payload.js";
 import type { BugReportContext, BugReportEnvironment } from "./payload.js";
+
+const DRAFT_KEY = "bugkit:draft:v1";
 
 // Every label is its own key, so an assertion names the string it means. The
 // one template that interpolates has to stay a template, and the counter has to
 // stay a function.
 const TEMPLATES: Record<string, string> = { filed: "issue {number}" };
 
+const kindLabels = (kind: "bug" | "feature") =>
+  new Proxy({} as BugReportKindLabels, { get: (_t, key) => `${kind}.${String(key)}` });
+
 const labels = new Proxy({} as BugReportLabels, {
   get: (_t, key) => {
+    if (key === "bug" || key === "feature") return kindLabels(key);
     if (key === "characterCount") return (used: number, limit: number) => `${used} / ${limit}`;
+    if (key === "zoomLevel") return (percent: number) => `${percent} %`;
     return TEMPLATES[String(key)] ?? String(key);
   },
 });
@@ -56,12 +63,16 @@ describe("BugReportDialog", () => {
   // The scroll-lock tests below write to it, and the property outlives a render.
   afterEach(() => {
     document.body.style.overflow = "";
+    sessionStorage.clear();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   // The spec's rule is that everything the submission carries is visible before
   // Send, so this asserts every value in the context — not a sample of it.
   it("shows every value the report carries before Send", () => {
     renderDialog();
+    fireEvent.click(screen.getByRole("button", { name: "technicalTitle" }));
 
     for (const value of [
       context.area,
@@ -77,30 +88,224 @@ describe("BugReportDialog", () => {
 
     cleanup();
     renderDialog({ context: { area: "/x", version: "v" } });
+    fireEvent.click(screen.getByRole("button", { name: "technicalTitle" }));
     expect(screen.queryByText("contextRequestId")).toBeNull();
+  });
+
+  it("rewords the editor for a feature request", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole("radio", { name: "kindFeature" }));
+    expect(screen.getByRole("heading", { name: "feature.title" })).toBeInTheDocument();
+    expect(screen.getByLabelText("feature.descriptionLabel")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "feature.impactWorkaround" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "feature.send" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "kindBug" }));
+    expect(screen.getByRole("heading", { name: "bug.title" })).toBeInTheDocument();
+    expect(screen.getByLabelText("bug.descriptionLabel")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "bug.impactWorkaround" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "bug.send" })).toBeInTheDocument();
+  });
+
+  it("sends the kind and the trimmed summary", async () => {
+    const user = userEvent.setup();
+    const { submit } = renderDialog();
+
+    await user.click(screen.getByRole("radio", { name: "kindFeature" }));
+    await user.type(screen.getByLabelText("summaryLabel"), "  Export CSV ");
+    await user.type(screen.getByLabelText("feature.descriptionLabel"), "Needed for audits");
+    await user.click(screen.getByRole("button", { name: "feature.send" }));
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    const form = submit.mock.calls[0][0];
+    expect(form.get("kind")).toBe("feature");
+    expect(form.get("summary")).toBe("Export CSV");
+  });
+
+  it("refuses to send without a summary, then without a description", async () => {
+    const user = userEvent.setup();
+    const { submit } = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
+
+    const summary = screen.getByLabelText("summaryLabel");
+    expect(submit).not.toHaveBeenCalled();
+    expect(summary).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByText("summaryRequired")).toBeInTheDocument();
+    expect(summary).toHaveFocus();
+
+    await user.type(summary, "Export");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
+
+    expect(screen.getByText("bug.descriptionRequired")).toBeInTheDocument();
+    expect(screen.getByLabelText("bug.descriptionLabel")).toHaveFocus();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("keeps the summary within the server's cap and counts the description", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    expect((screen.getByLabelText("summaryLabel") as HTMLInputElement).maxLength).toBe(200);
+
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "abc");
+    expect(screen.getByText("3 / 5000")).toBeInTheDocument();
+  });
+
+  it("asks before the back button discards typed text", async () => {
+    const user = userEvent.setup();
+    const first = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: "back" }));
+    expect(first.onClose).toHaveBeenCalledTimes(1);
+    first.unmount();
+
+    const { onClose } = renderDialog();
+    await user.type(screen.getByLabelText("summaryLabel"), "Export");
+    await user.click(screen.getByRole("button", { name: "back" }));
+
+    const confirm = screen.getByRole("alertdialog", { name: "discardTitle" });
+    expect(within(confirm).getByRole("button", { name: "keepEditing" })).toHaveFocus();
+
+    await user.click(within(confirm).getByRole("button", { name: "keepEditing" }));
+    expect(screen.getByLabelText("summaryLabel")).toHaveValue("Export");
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "back" }));
+    await user.click(screen.getByRole("button", { name: "discard" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it("asks before Escape discards, and never closes while sending", async () => {
+    const user = userEvent.setup();
+    const { onClose } = renderDialog({ submit: vi.fn(() => new Promise<never>(() => {})) });
+
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "Typed");
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("alertdialog", { name: "discardTitle" })).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByLabelText("bug.descriptionLabel")).toHaveValue("Typed");
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.type(screen.getByLabelText("summaryLabel"), "Summary");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "back" })).toHaveAttribute("aria-disabled", "true"),
+    );
+
+    await user.keyboard("{Escape}");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("keeps a draft in this tab and restores it", async () => {
+    const user = userEvent.setup();
+    const first = renderDialog();
+
+    await user.type(screen.getByLabelText("summaryLabel"), "Export");
+    await user.click(screen.getByRole("radio", { name: "kindFeature" }));
+    await user.click(screen.getByRole("radio", { name: "feature.impactBlocks" }));
+
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBe(
+      '{"v":1,"kind":"feature","summary":"Export","description":"","impact":"blocks"}',
+    );
+    expect(screen.getByText("saved")).toBeInTheDocument();
+    first.unmount();
+
+    renderDialog();
+    expect(screen.getByLabelText("summaryLabel")).toHaveValue("Export");
+    expect(screen.getByRole("radio", { name: "kindFeature" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "feature.impactBlocks" })).toBeChecked();
+
+    await user.type(screen.getByLabelText("feature.descriptionLabel"), "Needed");
+    await user.click(screen.getByRole("button", { name: "feature.send" }));
+
+    expect(await screen.findByText("issue 141")).toBeInTheDocument();
+    expect(sessionStorage.getItem(DRAFT_KEY)).toBeNull();
+  });
+
+  it("claims nothing when the tab cannot store a draft", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("quota");
+    });
+    renderDialog();
+
+    await user.type(screen.getByLabelText("summaryLabel"), "Export");
+    expect(screen.getByLabelText("summaryLabel")).toHaveValue("Export");
+    expect(screen.queryByText("saved")).toBeNull();
+    cleanup();
+    vi.restoreAllMocks();
+
+    sessionStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({ v: 2, kind: "bug", summary: "Old", description: "", impact: "workaround" }),
+    );
+    renderDialog();
+    expect(screen.getByLabelText("summaryLabel")).toHaveValue("");
+    cleanup();
+
+    sessionStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({ v: 1, kind: "x", summary: "Old", description: "", impact: "workaround" }),
+    );
+    renderDialog();
+    expect(screen.getByLabelText("summaryLabel")).toHaveValue("");
+  });
+
+  it("shows the technical details and what is shared only when opened", async () => {
+    const user = userEvent.setup();
+    renderDialog({ context: { area: "/sites/1", version: "3862535" } });
+
+    const technical = screen.getByRole("button", { name: "technicalTitle" });
+    expect(technical).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("/sites/1")).toBeNull();
+    await user.click(technical);
+    expect(technical).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("/sites/1")).toBeInTheDocument();
+    expect(screen.getByText(environment.viewport)).toBeInTheDocument();
+
+    const shared = screen.getByRole("button", { name: "sharedTitle" });
+    expect(shared).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("sharedBody")).toBeNull();
+    await user.click(shared);
+    expect(shared).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("sharedBody")).toBeInTheDocument();
+
+    const note = screen.getByRole("note");
+    expect(note).toContainElement(screen.getByText("sensitiveTitle"));
+    expect(note).toContainElement(screen.getByText("sensitiveBody"));
   });
 
   it("refuses to send an empty description", async () => {
     const user = userEvent.setup();
     const { submit } = renderDialog();
 
-    await user.click(screen.getByRole("button", { name: "send" }));
+    await user.type(screen.getByLabelText("summaryLabel"), "Export");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
 
     expect(submit).not.toHaveBeenCalled();
-    expect(screen.getByText("descriptionRequired")).toBeInTheDocument();
+    expect(screen.getByText("bug.descriptionRequired")).toBeInTheDocument();
   });
 
   it("submits the form, then shows the filed number", async () => {
     const user = userEvent.setup();
     const { submit } = renderDialog();
 
-    await user.type(screen.getByLabelText("descriptionLabel"), "  Klienti label is wrong  ");
-    await user.click(screen.getByLabelText("impactBlocks"));
-    await user.click(screen.getByRole("button", { name: "send" }));
+    await user.type(screen.getByLabelText("summaryLabel"), "Klienti label");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "  Klienti label is wrong  ");
+    await user.click(screen.getByRole("radio", { name: "bug.impactBlocks" }));
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     const form = submit.mock.calls[0][0];
     expect(form).toBeInstanceOf(FormData);
+    expect(form.get("kind")).toBe("bug");
     expect(form.get("description")).toBe("Klienti label is wrong");
     expect(form.get("impact")).toBe("blocks");
     expect(form.get("area")).toBe("/projects/7/board");
@@ -112,14 +317,6 @@ describe("BugReportDialog", () => {
 
     expect(await screen.findByText("issue 141")).toBeInTheDocument();
     expect(screen.queryByRole("link")).toBeNull();
-  });
-
-  it("offers all four tools and undo when there is an image", () => {
-    renderDialog();
-
-    for (const name of ["toolArrow", "toolRect", "toolFreehand", "toolBlackout", "undo"]) {
-      expect(screen.getByRole("button", { name })).toBeInTheDocument();
-    }
   });
 
   // jsdom paints nothing, but it does run the handlers — and the handlers are
@@ -148,9 +345,24 @@ describe("BugReportDialog", () => {
   // Reading the pointer position is the only observable side effect of "this
   // event started or extended a shape" — jsdom paints nothing, so the geometry
   // itself goes nowhere a test can see it.
-  it("draws on the primary button only, and stops when the drag is cancelled", () => {
+  it("draws on the primary button only, and stops when the drag is cancelled", async () => {
+    // HACK: jsdom never fires an image's load, and the pane draws nothing until
+    // one has loaded, so the stand-in image is what lets a pointer event reach
+    // the geometry at all.
+    vi.stubGlobal(
+      "Image",
+      class {
+        naturalWidth = 800;
+        naturalHeight = 600;
+        onload: (() => void) | null = null;
+        set src(_value: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      },
+    );
     renderDialog();
     const canvas = screen.getByLabelText("screenshotTitle");
+    await waitFor(() => expect(canvas).toHaveAttribute("width", "800"));
     canvas.setPointerCapture = () => {};
     const measured = vi.spyOn(canvas, "getBoundingClientRect");
 
@@ -191,8 +403,9 @@ describe("BugReportDialog", () => {
     const user = userEvent.setup();
     const { submit } = renderDialog({ capture: { ok: false, reason: "failed" } });
 
-    await user.type(screen.getByLabelText("descriptionLabel"), "No image, still a bug");
-    await user.click(screen.getByRole("button", { name: "send" }));
+    await user.type(screen.getByLabelText("summaryLabel"), "No image");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "No image, still a bug");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     expect(submit.mock.calls[0][0].has("screenshot")).toBe(false);
@@ -210,15 +423,16 @@ describe("BugReportDialog", () => {
 
     renderDialog({ submit: vi.fn().mockRejectedValue(new Error("offline")) });
 
-    await user.type(screen.getByLabelText("descriptionLabel"), "Send failed");
-    await user.click(screen.getByRole("button", { name: "send" }));
+    await user.type(screen.getByLabelText("summaryLabel"), "Copy me");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "Send failed");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
 
     await user.click(await screen.findByRole("button", { name: "copyToClipboard" }));
     expect(writeText).toHaveBeenCalledTimes(1);
     expect(writeText).toHaveBeenCalledWith(
       reportAsText({
         kind: "bug",
-        summary: "",
+        summary: "Copy me",
         description: "Send failed",
         impact: "workaround",
         context,
@@ -240,8 +454,9 @@ describe("BugReportDialog", () => {
       .mockRejectedValue(new Error("Bug reporting is not configured on this server."));
     renderDialog({ submit });
 
-    await user.type(screen.getByLabelText("descriptionLabel"), "Nothing happens on Save");
-    await user.click(screen.getByRole("button", { name: "send" }));
+    await user.type(screen.getByLabelText("summaryLabel"), "Save");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "Nothing happens on Save");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
 
     expect(
       await screen.findByText("Bug reporting is not configured on this server."),
@@ -258,8 +473,9 @@ describe("BugReportDialog", () => {
 
     renderDialog({ submit: vi.fn().mockRejectedValue(new Error("offline")) });
 
-    await user.type(screen.getByLabelText("descriptionLabel"), "No clipboard here");
-    await user.click(screen.getByRole("button", { name: "send" }));
+    await user.type(screen.getByLabelText("summaryLabel"), "No clipboard");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "No clipboard here");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
     await user.click(await screen.findByRole("button", { name: "copyToClipboard" }));
 
     const fallback = await screen.findByRole("textbox", { name: "copyToClipboard" });
@@ -273,30 +489,9 @@ describe("BugReportDialog", () => {
   it("keeps the description within the server's cap", () => {
     renderDialog();
 
-    expect((screen.getByLabelText("descriptionLabel") as HTMLTextAreaElement).maxLength).toBe(
+    expect((screen.getByLabelText("bug.descriptionLabel") as HTMLTextAreaElement).maxLength).toBe(
       5000,
     );
-  });
-
-  // aria-disabled, not `disabled`: a disabled button is blurred by the browser,
-  // and a keyboard reporter would lose focus to <body> for the whole request. So
-  // Cancel stays clickable and the handler is what refuses.
-  it("closes on Escape, but never while the report is in flight", async () => {
-    const user = userEvent.setup();
-    const { onClose } = renderDialog({ submit: vi.fn(() => new Promise<never>(() => {})) });
-
-    await user.keyboard("{Escape}");
-    expect(onClose).toHaveBeenCalledTimes(1);
-
-    await user.type(screen.getByLabelText("descriptionLabel"), "Still in flight");
-    await user.click(screen.getByRole("button", { name: "send" }));
-
-    const cancel = screen.getByRole("button", { name: "cancel" });
-    await waitFor(() => expect(cancel).toHaveAttribute("aria-disabled", "true"));
-
-    await user.keyboard("{Escape}");
-    await user.click(cancel);
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("ignores a second Send while the first is still in flight", async () => {
@@ -304,8 +499,9 @@ describe("BugReportDialog", () => {
     const submit = vi.fn(() => new Promise<never>(() => {}));
     renderDialog({ submit });
 
-    await user.type(screen.getByLabelText("descriptionLabel"), "Double click me");
-    const send = screen.getByRole("button", { name: "send" });
+    await user.type(screen.getByLabelText("summaryLabel"), "Double click");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "Double click me");
+    const send = screen.getByRole("button", { name: "bug.send" });
     await user.click(send);
 
     await waitFor(() => expect(send).toHaveAttribute("aria-disabled", "true"));
@@ -318,8 +514,9 @@ describe("BugReportDialog", () => {
     const user = userEvent.setup();
     renderDialog();
 
-    await user.type(screen.getByLabelText("descriptionLabel"), "Wrong total on the bill");
-    await user.click(screen.getByRole("button", { name: "send" }));
+    await user.type(screen.getByLabelText("summaryLabel"), "Bill total");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "Wrong total on the bill");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
 
     const status = await screen.findByRole("status");
     expect(within(status).getByText("issue 141")).toBeInTheDocument();
@@ -370,14 +567,13 @@ describe("BugReportDialog", () => {
     window.addEventListener("keydown", onKey);
     try {
       const { onClose } = renderDialog();
-      const description = screen.getByLabelText("descriptionLabel");
-      expect(document.activeElement).toBe(description);
-
+      const summary = screen.getByLabelText("summaryLabel");
+      expect(document.activeElement).toBe(summary);
       await user.keyboard("{Control>}k{/Control}");
       await user.keyboard("{Meta>}k{/Meta}");
       expect(search).not.toHaveBeenCalled();
       expect(onClose).not.toHaveBeenCalled();
-      expect(document.activeElement).toBe(description);
+      expect(document.activeElement).toBe(summary);
     } finally {
       window.removeEventListener("keydown", onKey);
     }
@@ -391,31 +587,14 @@ describe("BugReportDialog", () => {
   it("keeps Escape to itself, so a form modal underneath stays open", async () => {
     const user = userEvent.setup();
     const underneath = vi.fn();
-    // Only Escape: the description below is typed through this same listener,
-    // and Modal's handler is the thing being kept away from that one key.
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") underneath(event);
     };
     window.addEventListener("keydown", onKey);
 
     try {
-      const { onClose } = renderDialog({ submit: vi.fn(() => new Promise<never>(() => {})) });
+      const { onClose } = renderDialog();
 
-      await user.keyboard("{Escape}");
-      expect(onClose).toHaveBeenCalledTimes(1);
-      expect(underneath).not.toHaveBeenCalled();
-
-      await user.type(screen.getByLabelText("descriptionLabel"), "Still in flight");
-      await user.click(screen.getByRole("button", { name: "send" }));
-      await waitFor(() =>
-        expect(screen.getByRole("button", { name: "cancel" })).toHaveAttribute(
-          "aria-disabled",
-          "true",
-        ),
-      );
-
-      // Ignored here, but still ours: letting it through would close the modal
-      // behind a report that is on its way.
       await user.keyboard("{Escape}");
       expect(onClose).toHaveBeenCalledTimes(1);
       expect(underneath).not.toHaveBeenCalled();

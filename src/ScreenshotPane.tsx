@@ -41,6 +41,7 @@ export type ScreenshotPaneProps = {
   onImageChosen: (dataUrl: string) => void;
   expanded: boolean;
   onToggleExpanded: () => void;
+  onMarkupChange?: (marked: boolean) => void;
 };
 
 const STROKE = "#e11d48";
@@ -208,13 +209,19 @@ function toolStyle(active: boolean): CSSProperties {
 }
 
 export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPaneProps>(
-  function ScreenshotPane({ dataUrl, labels, onImageChosen, expanded, onToggleExpanded }, ref) {
+  function ScreenshotPane(
+    { dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange },
+    ref,
+  ) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
     const imageRef = useRef<HTMLImageElement | null>(null);
     const [natural, setNatural] = useState<Natural | null>(null);
     const [history, setHistoryState] = useState<History>({ done: [], undone: [] });
     const historyRef = useRef(history);
+    useEffect(() => {
+      onMarkupChange?.(history.done.length > 0);
+    }, [history.done.length, onMarkupChange]);
     const [tool, setTool] = useState<Tool>("arrow");
     const [active, setActiveState] = useState<Active | null>(null);
     const activeRef = useRef<Active | null>(null);
