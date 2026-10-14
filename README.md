@@ -205,7 +205,9 @@ Responses, in the order the route checks them:
 | 201 | `{"id": "<task uuid>", "number": <task number>}` |
 
 The report becomes an internal `bug` request in the project's triage column,
-titled `[<key name>] <first line of the description>`, with the screenshot as
+titled with the reporter's summary as sent. Without a summary, the title is
+`[<key name>] <first line of the description>`, cut to 80 characters. The
+description starts with `App: <key name>`, and the screenshot is attached as
 a private task file. The project's clients never see it unless staff make the
 task public. Nothing about the request's outcome goes back to the app.
 
