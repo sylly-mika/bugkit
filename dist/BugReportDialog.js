@@ -6,11 +6,7 @@ import { styles } from "./styles.js";
 import { BUG_KINDS, SUMMARY_LIMIT, buildBugReportForm, reportAsText, } from "./payload.js";
 import { formatFiled } from "./labels.js";
 import { DESCRIPTION_LIMIT, clearDraft, readDraft, writeDraft } from "./draft.js";
-/**
- * The backend refuses a larger screenshot with a 413. Past the cap the image is
- * dropped rather than the report: the words and the diagnostics are what make a
- * report actionable, and a refusal would cost all three.
- */
+// WHY: the backend refuses a larger screenshot with a 413; past the cap the image is dropped, never the report.
 const SCREENSHOT_LIMIT_BYTES = 5 * 1024 * 1024;
 const COPIED_RESET_MS = 4_000;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -28,16 +24,7 @@ const SHARED_ID = "bug-report-shared";
 const SHARED_HINT_ID = "bug-report-shared-hint";
 const DISCARD_TITLE_ID = "bug-report-discard-title";
 const DISCARD_BODY_ID = "bug-report-discard-body";
-/**
- * Defer to whoever locked the body first, and hand back the undo.
- *
- * A counter of our own cannot work here: the folder must not import the app's
- * Modal, so the two counters would be independent, and both restore the same
- * `document.body.style.overflow`. Whichever unlocks last wins — and when that is
- * this dialog it writes back the "hidden" it captured while the modal held the
- * lock, leaving the panel unscrollable until a reload. Doing nothing when the
- * body is already hidden leaves exactly one owner of the property.
- */
+// WHY: the Modal restores the same body overflow; a second counter would write back a stale "hidden".
 function lockBodyScroll() {
     if (document.body.style.overflow === "hidden")
         return () => { };
@@ -105,18 +92,12 @@ export function BugReportDialog(props) {
         };
         const onKey = (event) => {
             if (event.key === "Escape") {
-                // While this dialog is open the key is ours, whatever we do with it. The
-                // app's Modal listens for Escape on `window` too and this dialog opens on
-                // top of one, so without stopping it here a single press closes both and
-                // takes the form the reporter was filling in with it.
+                // WHY: the app's Modal also listens for Escape on window; without stopping it here one press closes both.
                 event.stopImmediatePropagation();
-                // Not while sending: the request is already on its way, and closing here
-                // would lose the reporter's words with no way to tell them whether it
-                // landed.
+                // WHY: while sending, Escape must not close: the reporter could not tell whether their words landed.
                 if (sending)
                     return;
-                // WHY: a text box open on the screenshot takes the key first; Escape drops
-                // the words being typed onto the image, not the report.
+                // WHY: a text box open on the screenshot takes Escape first, so it ends the edit, not the report.
                 if (paneRef.current?.cancelText())
                     return;
                 if (confirming) {
@@ -131,26 +112,20 @@ export function BugReportDialog(props) {
             }
             if (event.key === "Tab")
                 trapTab(event);
-            // The page's search shortcut, also on `window`. Letting it through moves
-            // focus to a box hidden under this overlay: the reporter types into what
-            // they cannot see, Enter navigates the page underneath, and the Escape
-            // they reach for next closes the report.
+            // WHY: the page's search shortcut is also on window; letting it through focuses a box hidden under this overlay.
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
                 event.stopImmediatePropagation();
                 event.preventDefault();
             }
         };
-        // Capture phase, so this runs before any listener the page registered on
-        // `window` in the usual way — stopping propagation from the bubble phase
-        // would be too late to keep the modal underneath from seeing the key.
+        // WHY: capture phase, so it runs before the page's window listeners; bubble-phase stopping comes too late.
         window.addEventListener("keydown", onKey, { capture: true });
         return () => window.removeEventListener("keydown", onKey, { capture: true });
     }, [onClose, sending, confirming, hasWork]);
     useEffect(() => {
         const restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         const unlockBodyScroll = lockBodyScroll();
-        // The dialog is a portal at the end of <body>, so without this the caret
-        // stays behind on the page the reporter just photographed.
+        // WHY: the dialog is a portal at the end of body; without this the caret stays on the photographed page.
         summaryRef.current?.focus();
         return () => {
             unlockBodyScroll();
@@ -221,8 +196,7 @@ export function BugReportDialog(props) {
         onClose();
     }
     async function send() {
-        // aria-disabled leaves the button clickable, so the guard the attribute only
-        // advertises has to live here.
+        // WHY: aria-disabled leaves the button clickable, so the guard has to live in the handler.
         if (sending)
             return;
         const missingSummary = summary.trim() === "";
@@ -238,11 +212,7 @@ export function BugReportDialog(props) {
             return;
         }
         setPhase({ name: "sending" });
-        // WHY: text-only until the export says otherwise, and declared out here so the
-        // failure phase can hand the reporter their words back however far the
-        // attempt got. The export itself is awaited INSIDE the try: a handle that
-        // rejects rather than resolving null would otherwise leave the dialog stuck
-        // on "sending", with Escape and Back both refusing to close it.
+        // WHY: declared outside the try so failure can return the words; an export that rejects must not strand "sending".
         let payload = {
             kind,
             summary: summary.trim(),
@@ -264,10 +234,7 @@ export function BugReportDialog(props) {
             setPhase({ name: "sent", number: result.number });
         }
         catch (error) {
-            // The reporter's words must survive a network blip; the failure state
-            // hands them back rather than asking them to type it all again. The
-            // server's own sentence goes with them — "not configured" and "try again
-            // in 40 seconds" are different problems and only one is worth retrying.
+            // WHY: keep the server's sentence too; "not configured" and "try again" need different actions.
             setPhase({
                 name: "failed",
                 payload,
@@ -278,9 +245,6 @@ export function BugReportDialog(props) {
     async function copyReport(payload) {
         const text = reportAsText(payload);
         try {
-            // Absent outside a secure context, and a present one still rejects when
-            // the document is not focused or permission is refused. Both end in the
-            // same place: the text on screen, selected, for a manual Ctrl+C.
             if (!window.navigator.clipboard) {
                 throw new Error("clipboard unavailable");
             }
@@ -291,10 +255,7 @@ export function BugReportDialog(props) {
             setCopyState("manual");
         }
     }
-    // Everything the submission carries, so nobody sends what they have not seen.
-    // The request id is the host's own reference and is shown only when the host
-    // gives one. The reporter's identity is not listed: the server adds it from
-    // its own session, so nothing here can name the reporter wrongly.
+    // WHY: the reporter's identity is left out; the server adds it from its own session.
     const contextRows = [
         [labels.contextRoute, context.area],
         [labels.contextVersion, context.version],
