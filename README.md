@@ -30,7 +30,7 @@ go get github.com/sylly-mika/bugkit@v0.1.0
 npm, from the git tag (there is no registry release):
 
 ```sh
-npm install github:sylly-mika/bugkit#v0.1.0 html-to-image@^1.11.13
+npm install github:sylly-mika/bugkit#v0.3.0 html-to-image@^1.11.13
 ```
 
 `react` and `react-dom` (`^19.2.7`) and `html-to-image` (`^1.11.13`) are
@@ -162,7 +162,77 @@ The package exports `BugReportButton`, `BugReportDialog`, `defaultLabels`,
 `buildBugReportForm` (the form the dialog sends) and the types
 `BugReportButtonProps`, `BugReportLabels`, `BugReportKindLabels`,
 `BugReportLabelOverrides`, `BugReportContext`, `BugReportResult` and
-`BugReportSubmit`.
+`BugReportSubmit`, and the styling types `BugReportPart` and
+`BugReportClassNames` with the part list `BUG_REPORT_PARTS`.
+
+## Next.js
+
+Two entries serve a Next.js app: `@sylly-mika/bugkit/next` exports the client
+component `BugReport`, and `@sylly-mika/bugkit/server` exports
+`createBugReportRoute`. The server entry imports no React, so the route runs
+in Node and on the Edge runtime.
+
+The route keeps the intake key on the server. Set these in the app's
+environment:
+
+- `BUGKIT_INTAKE_URL`: `<ino-tasks API>/api/intake/v1/bug-reports`.
+- `BUGKIT_INTAKE_KEY`: the intake key. Server only: never name it
+  `NEXT_PUBLIC_`, or the build puts it in the page.
+
+`app/api/bug-report/route.ts`:
+
+```ts
+import { createBugReportRoute } from "@sylly-mika/bugkit/server";
+import { getSession } from "@/lib/session";
+
+export const POST = createBugReportRoute({
+  intakeUrl: process.env.BUGKIT_INTAKE_URL ?? "",
+  intakeKey: process.env.BUGKIT_INTAKE_KEY ?? "",
+  reporter: async () => {
+    const session = await getSession();
+    return session ? { name: session.name, email: session.email } : null;
+  },
+});
+```
+
+`reporter` returns the signed-in user, or `null` for a 401. The optional
+`limit(request, reporter)` returns the seconds to wait for a 429, or `null` to
+allow the report. No rate limiter is built in: a serverless instance does not
+share one, so `limit` is where the app keeps its own.
+
+Mount the launcher once in `app/layout.tsx`:
+
+```tsx
+import { BugReport } from "@sylly-mika/bugkit/next";
+
+<BugReport className="…" version={process.env.NEXT_PUBLIC_BUILD_SHA} />
+```
+
+`version` goes into the report's context. `BugReport` posts to
+`/api/bug-report` by default, and `init` (an object, or a function that
+returns one) is merged into the request.
+
+Static export, or a Go backend running `bugkit.Handler`: pass its URL as
+`endpoint`, and send the session with `init={{ credentials: "include" }}` or
+a bearer header.
+
+```tsx
+<BugReport endpoint="https://api.example.test/api/v1/bug-reports" init={{ credentials: "include" }} />
+```
+
+Styling: the dialog reads the `--color-*`, `--font-*` and `--radius-*`
+variables of the page, with a built-in fallback for each. `classNames` maps a
+part from `BUG_REPORT_PARTS` to extra classes. A Tailwind example:
+
+```tsx
+<BugReport
+  classNames={{ panel: "bg-card rounded-xl", "primary-button": "bg-primary text-primary-foreground" }}
+/>
+```
+
+The stylesheet is one `<style>` element in `<head>`. Under a Content Security
+Policy, pass its `nonce` to `BugReport`. Tailwind v3 needs `classNames` for the
+buttons and inputs.
 
 ## The intake route
 

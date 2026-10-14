@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.3.0
+
+- Styling: the components mark each element with a part (`BUG_REPORT_PARTS`).
+  `classNames` maps parts to classes, and `nonce` covers the one `<style>`
+  element bugkit adds to `<head>`.
+- A layered default stylesheet reads the page's `--color-*`, `--font-*` and
+  `--radius-*` variables, with a fallback for each.
+- Browser package: the types `BugReportPart` and `BugReportClassNames` are
+  exported.
+- `@sylly-mika/bugkit/next` exports `BugReport`, the launcher and dialog wired
+  to a route with `endpoint`, `init` and `version`.
+- `@sylly-mika/bugkit/server` exports `createBugReportRoute`, a Fetch-API
+  handler that checks a report as the Go handler does and relays it to the
+  intake with the key kept on the server.
+- Nothing is removed.
+
 ## v0.2.1
 
 - Crop shows the selection while dragging: the area outside is dimmed, the
