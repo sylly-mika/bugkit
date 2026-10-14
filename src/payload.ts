@@ -2,6 +2,12 @@ export const BUG_IMPACTS = ["blocks", "workaround", "cosmetic"] as const;
 
 export type BugImpact = (typeof BUG_IMPACTS)[number];
 
+export const BUG_KINDS = ["bug", "feature"] as const;
+
+export type BugKind = (typeof BUG_KINDS)[number];
+
+export const SUMMARY_LIMIT = 200;
+
 /** What the app's getContext returns: the page, the build and, when it has one, the request id. */
 export type BugReportContext = { area: string; version: string; requestId?: string };
 
@@ -18,6 +24,8 @@ export type BugReportEnvironment = {
 };
 
 export type BugReportPayload = {
+  kind: BugKind;
+  summary: string;
   description: string;
   impact: BugImpact;
   context: BugReportContext;
@@ -97,6 +105,8 @@ function nullEntriesPart(environment: BugReportEnvironment): string {
 export function buildBugReportForm(payload: BugReportPayload): FormData {
   const form = new FormData();
 
+  form.append("kind", payload.kind);
+  form.append("summary", payload.summary);
   form.append("description", payload.description);
   form.append("impact", payload.impact);
   form.append("area", payload.context.area);
@@ -144,9 +154,12 @@ function jsonLine(value: unknown): string | null {
 export function reportAsText(payload: BugReportPayload): string {
   const { context, environment } = payload;
   const requestId = requestIdOf(context);
+  const summary = payload.summary.trim();
   const lines = [
+    ...(summary === "" ? [] : [summary, ""]),
     payload.description,
     "",
+    `Kind: ${payload.kind}`,
     `Impact: ${payload.impact}`,
     `Page: ${context.area}`,
     `Version: ${context.version}`,

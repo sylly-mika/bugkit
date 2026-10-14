@@ -178,6 +178,43 @@ func TestHandlerFilesAReport(t *testing.T) {
 	}
 }
 
+func TestHandlerPassesKindAndSummary(t *testing.T) {
+	sink := newFakeSink()
+	fields := validParts()
+	fields["kind"] = "feature"
+	fields["summary"] = "  Export the plan list \n"
+	rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201\n%s", rec.Code, rec.Body.String())
+	}
+	if sink.got.Kind != "feature" {
+		t.Errorf("Kind = %q, want feature", sink.got.Kind)
+	}
+	if sink.got.Summary != "Export the plan list" {
+		t.Errorf("Summary = %q, want %q", sink.got.Summary, "Export the plan list")
+	}
+}
+
+func TestHandlerTakesAnOldReportAsABug(t *testing.T) {
+	emptyKind := validParts()
+	emptyKind["kind"] = ""
+	for name, fields := range map[string]map[string]string{"no kind part": validParts(), "empty kind": emptyKind} {
+		sink := newFakeSink()
+		rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil)
+
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("%s: status = %d, want 201\n%s", name, rec.Code, rec.Body.String())
+		}
+		if sink.got.Kind != "bug" {
+			t.Errorf("%s: Kind = %q, want bug", name, sink.got.Kind)
+		}
+		if sink.got.Summary != "" {
+			t.Errorf("%s: Summary = %q, want empty", name, sink.got.Summary)
+		}
+	}
+}
+
 func TestHandlerTakesTheReporterFromWho(t *testing.T) {
 	sink := newFakeSink()
 	fields := validParts()

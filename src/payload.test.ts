@@ -7,6 +7,8 @@ const jsEntry = { message: "x is undefined", source: "error", at: "2026-09-06T09
 
 function payload(overrides: Partial<BugReportPayload> = {}): BugReportPayload {
   return {
+    kind: "bug",
+    summary: "Plans list is empty",
     description: "The filter label reads Klienti on the Sites list",
     impact: "workaround",
     context: { area: "/sites/123/plans", version: "3862535" },
@@ -56,6 +58,8 @@ describe("buildBugReportForm", () => {
     );
 
     expect([...form.keys()]).toEqual([
+      "kind",
+      "summary",
       "description",
       "impact",
       "area",
@@ -65,6 +69,18 @@ describe("buildBugReportForm", () => {
       "diagnostics",
       "screenshot",
     ]);
+  });
+
+  it("carries the kind and the summary as their own parts", () => {
+    const form = buildBugReportForm(payload({ kind: "feature", summary: "Export" }));
+    expect(form.get("kind")).toBe("feature");
+    expect(form.get("summary")).toBe("Export");
+  });
+
+  it("sends an empty summary as an empty part", () => {
+    const form = buildBugReportForm(payload({ summary: "" }));
+    expect(form.has("summary")).toBe(true);
+    expect(form.get("summary")).toBe("");
   });
 
   it("posts the environment and the entries as the diagnostics JSON", () => {
@@ -141,9 +157,16 @@ describe("buildBugReportForm", () => {
 });
 
 describe("reportAsText", () => {
+  it("starts with the description when the summary is blank", () => {
+    const text = reportAsText(payload({ summary: "  " }));
+    expect(text.startsWith("The filter label reads Klienti on the Sites list\n\n")).toBe(true);
+  });
+
   it("renders everything a copied report needs to be re-filed by hand", () => {
     const text = reportAsText(
       payload({
+        kind: "feature",
+        summary: "Export",
         context: { area: "/sites/123/plans", version: "3862535", requestId: "req-7f3a" },
         diagnostics: [apiEntry, jsEntry],
       }),
@@ -151,8 +174,11 @@ describe("reportAsText", () => {
 
     expect(text).toBe(
       [
+        "Export",
+        "",
         "The filter label reads Klienti on the Sites list",
         "",
+        "Kind: feature",
         "Impact: workaround",
         "Page: /sites/123/plans",
         "Version: 3862535",

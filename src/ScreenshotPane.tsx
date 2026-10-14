@@ -5,29 +5,55 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { beginShape, extendShape, undoLast, TOOLS, type Point, type Shape, type Tool } from "./shapes.js";
+import {
+  beginShape,
+  cropOf,
+  extendShape,
+  push,
+  redo as redoHistory,
+  undo as undoHistory,
+  type History,
+  type Point,
+  type Rect,
+  type Shape,
+  type StrokeShape,
+  type Step,
+  type Tool,
+} from "./shapes.js";
 import { styles } from "./styles.js";
 import type { BugReportLabels } from "./labels.js";
 
 export type ScreenshotPaneHandle = {
   toBlob(): Promise<Blob | null>;
+  cancelText(): boolean;
 };
 
 /** What the backend accepts, so a doomed upload is refused before Send. */
 export const UPLOAD_MIME = "image/png";
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
-type ScreenshotPaneProps = {
+export type ScreenshotPaneProps = {
   dataUrl: string | null;
   labels: BugReportLabels;
   onImageChosen: (dataUrl: string) => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
+  onMarkupChange?: (marked: boolean) => void;
 };
 
 const STROKE = "#e11d48";
 const STROKE_WIDTH = 3;
 const ARROW_HEAD = 12;
+const ZOOM_STEPS = [25, 50, 75, 100, 125, 150, 200, 300, 400];
+const MIN_CROP = 8;
+const DRAW_TOOLS: Exclude<Tool, "crop">[] = ["arrow", "rect", "freehand", "text", "redact"];
+
+type Natural = { width: number; height: number };
+type TextDraft = { id: number; at: Point; value: string };
+type Active = { kind: "shape"; shape: StrokeShape } | { kind: "crop"; from: Point; to: Point };
 
 /**
  * Null on every failure, and it has to be a `.catch` rather than a try/catch
@@ -35,7 +61,7 @@ const ARROW_HEAD = 12;
  * canvas does — is turned into a rejection, so the try would never see it and
  * the caller would await a rejected promise instead of getting an answer.
  *
- * Null rather than a fallback to the untouched capture, too. A blackout is the
+ * Null rather than a fallback to the untouched capture, too. A redaction is the
  * reason this editor exists, and shipping the original because the export failed
  * would send the customer name the reporter just covered.
  */
@@ -45,7 +71,28 @@ export function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob | null> {
   );
 }
 
+function paintText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, { tool: "text" }>) {
+  const { at, text, size } = shape;
+  const pad = size / 4;
+  ctx.font = `600 ${size}px system-ui, sans-serif`;
+  ctx.textBaseline = "top";
+  const width = ctx.measureText(text).width + pad * 2;
+  const height = size + pad * 2;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(at.x - pad, at.y - pad, width, height);
+  ctx.strokeStyle = STROKE;
+  ctx.lineWidth = STROKE_WIDTH;
+  ctx.strokeRect(at.x - pad, at.y - pad, width, height);
+  ctx.fillStyle = STROKE;
+  ctx.fillText(text, at.x, at.y);
+}
+
 function paint(ctx: CanvasRenderingContext2D, shape: Shape) {
+  if (shape.tool === "text") {
+    paintText(ctx, shape);
+    return;
+  }
+
   ctx.strokeStyle = STROKE;
   ctx.fillStyle = STROKE;
   ctx.lineWidth = STROKE_WIDTH;
@@ -68,9 +115,8 @@ function paint(ctx: CanvasRenderingContext2D, shape: Shape) {
     return;
   }
 
-  if (shape.tool === "blackout") {
-    // Opaque, not translucent: this is what covers a customer name before the
-    // image leaves the building, and the object it lands on is public-read.
+  if (shape.tool === "redact") {
+    // WHY: opaque, not translucent; this is what hides a customer name before the image leaves the browser.
     ctx.fillStyle = "#000000";
     ctx.fillRect(
       Math.min(from.x, to.x),
@@ -100,32 +146,164 @@ function paint(ctx: CanvasRenderingContext2D, shape: Shape) {
   ctx.fill();
 }
 
+/**
+ * Paints the picture cropped to `crop`, then the shapes in image coordinates.
+ * The translate is what makes a crop show only its own region.
+ */
+export function paintScene(
+  ctx: CanvasRenderingContext2D,
+  image: CanvasImageSource,
+  crop: Rect,
+  shapes: Shape[],
+): void {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, crop.width, crop.height);
+  ctx.translate(-crop.x, -crop.y);
+  ctx.drawImage(image, 0, 0);
+  shapes.forEach((shape) => paint(ctx, shape));
+}
+
+function paintCanvas(
+  canvas: HTMLCanvasElement,
+  image: CanvasImageSource,
+  crop: Rect,
+  shapes: Shape[],
+) {
+  if (canvas.width !== crop.width) canvas.width = crop.width;
+  if (canvas.height !== crop.height) canvas.height = crop.height;
+  const ctx = canvas.getContext("2d");
+  if (ctx) paintScene(ctx, image, crop, shapes);
+}
+
+function shapesOf(done: Step[]): Shape[] {
+  return done.flatMap((step) => (step.kind === "shape" ? [step.shape] : []));
+}
+
+function clamp(value: number, low: number, high: number): number {
+  return Math.min(Math.max(value, low), high);
+}
+
+function cropRect(from: Point, to: Point, within: Rect): Rect {
+  const left = Math.round(clamp(Math.min(from.x, to.x), within.x, within.x + within.width));
+  const right = Math.round(clamp(Math.max(from.x, to.x), within.x, within.x + within.width));
+  const top = Math.round(clamp(Math.min(from.y, to.y), within.y, within.y + within.height));
+  const bottom = Math.round(clamp(Math.max(from.y, to.y), within.y, within.y + within.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+// WHY: pointer coordinates are scaled and offset by the crop, so a drag lands on the pixel the export shows.
+function pointFrom(event: ReactPointerEvent<HTMLCanvasElement>, crop: Rect): Point {
+  const canvas = event.currentTarget;
+  const box = canvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - box.left - canvas.clientLeft) / canvas.clientWidth) * crop.width + crop.x,
+    y: ((event.clientY - box.top - canvas.clientTop) / canvas.clientHeight) * crop.height + crop.y,
+  };
+}
+
+function toolStyle(active: boolean): CSSProperties {
+  return active ? { ...styles.tool, ...styles.toolActive } : styles.tool;
+}
+
 export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPaneProps>(
-  function ScreenshotPane({ dataUrl, labels, onImageChosen }, ref) {
+  function ScreenshotPane(
+    { dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange },
+    ref,
+  ) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
     const imageRef = useRef<HTMLImageElement | null>(null);
-    const drawingRef = useRef(false);
-    const [shapes, setShapes] = useState<Shape[]>([]);
+    const [natural, setNatural] = useState<Natural | null>(null);
+    const [history, setHistoryState] = useState<History>({ done: [], undone: [] });
+    const historyRef = useRef(history);
+    useEffect(() => {
+      onMarkupChange?.(history.done.length > 0);
+    }, [history.done.length, onMarkupChange]);
     const [tool, setTool] = useState<Tool>("arrow");
-    const [loaded, setLoaded] = useState(false);
+    const [active, setActiveState] = useState<Active | null>(null);
+    const activeRef = useRef<Active | null>(null);
+    const [text, setTextState] = useState<TextDraft | null>(null);
+    const textRef = useRef<TextDraft | null>(null);
+    const textIdRef = useRef(0);
+    const [zoom, setZoom] = useState<number | null>(null);
+    const [fit, setFit] = useState(100);
     const [rejected, setRejected] = useState(false);
+
+    const setHistory = useCallback((next: History) => {
+      historyRef.current = next;
+      setHistoryState(next);
+    }, []);
+
+    const setActive = useCallback((next: Active | null) => {
+      activeRef.current = next;
+      setActiveState(next);
+    }, []);
+
+    const setText = useCallback((next: TextDraft | null) => {
+      textRef.current = next;
+      setTextState(next);
+    }, []);
+
+    const commitText = useCallback(
+      (id?: number) => {
+        const draft = textRef.current;
+        if (!draft || (id !== undefined && draft.id !== id)) return;
+        setText(null);
+        const value = draft.value.trim();
+        if (!value) return;
+        const size = Math.max(16, Math.round((imageRef.current?.naturalWidth ?? 0) / 50));
+        setHistory(
+          push(historyRef.current, {
+            kind: "shape",
+            shape: { tool: "text", at: draft.at, text: value, size },
+          }),
+        );
+      },
+      [setHistory, setText],
+    );
+
+    const finish = useCallback(() => {
+      const current = activeRef.current;
+      if (!current) return;
+      setActive(null);
+
+      if (current.kind === "shape") {
+        setHistory(push(historyRef.current, { kind: "shape", shape: current.shape }));
+        return;
+      }
+
+      const image = imageRef.current;
+      if (!image) return;
+      const bounds = cropOf(historyRef.current.done, {
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+      const rect = cropRect(current.from, current.to, bounds);
+      if (rect.width < MIN_CROP || rect.height < MIN_CROP) return;
+      setHistory(push(historyRef.current, { kind: "crop", rect }));
+      setTool("arrow");
+    }, [setActive, setHistory]);
+
+    const currentCrop = useCallback((): Rect | null => {
+      const image = imageRef.current;
+      if (!image) return null;
+      return cropOf(historyRef.current.done, {
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+    }, []);
 
     const redraw = useCallback(() => {
       const canvas = canvasRef.current;
       const image = imageRef.current;
-      const ctx = canvas?.getContext("2d");
-      if (!canvas || !image || !ctx) return;
+      if (!canvas || !image || !natural) return;
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      shapes.forEach((shape) => paint(ctx, shape));
-    }, [shapes]);
+      const crop = cropOf(history.done, natural);
+      const pending = active?.kind === "shape" ? [active.shape] : [];
+      paintCanvas(canvas, image, crop, [...shapesOf(history.done), ...pending]);
+    }, [natural, history, active]);
 
-    // Keyed on dataUrl ALONE, deliberately. redraw's identity changes with every
-    // shape, and a pointer drag appends a point per move — so depending on it
-    // here would reload the Image and reset canvas.width mid-stroke, dozens of
-    // times a second, wiping the drawing as it is being drawn. `loaded` is what
-    // re-runs the repaint effect below once the bitmap is actually there.
+    // WHY: keyed on dataUrl alone; depending on redraw would reload the Image mid-stroke and wipe the drawing.
     useEffect(() => {
       if (!dataUrl) return;
 
@@ -136,66 +314,73 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
         canvas.width = image.naturalWidth;
         canvas.height = image.naturalHeight;
         imageRef.current = image;
-        setLoaded(true);
+        setNatural({ width: image.naturalWidth, height: image.naturalHeight });
       };
       image.src = dataUrl;
 
       return () => {
         image.onload = null;
         imageRef.current = null;
-        setLoaded(false);
-        // A pasted replacement is a different picture; annotations drawn on the
-        // old one would land in the wrong place on the new one.
-        setShapes([]);
+        setNatural(null);
+        setHistory({ done: [], undone: [] });
+        setActive(null);
+        setText(null);
       };
-    }, [dataUrl]);
+    }, [dataUrl, setActive, setHistory, setText]);
 
-    // One repaint per frame, not one per pointermove. A drag delivers moves far
-    // faster than the display refreshes — coalescing here is what keeps a
-    // full-page bitmap plus the whole shape list from being redrawn several
-    // times between two frames the reporter can actually see.
     useEffect(() => {
-      if (!loaded) return;
+      if (!natural) return;
 
       const frame = requestAnimationFrame(redraw);
       return () => cancelAnimationFrame(frame);
-    }, [loaded, redraw]);
+    }, [natural, redraw]);
 
-    useImperativeHandle(ref, () => ({
-      // Flattened only here: while editing, the shapes stay a list so undo is a
-      // pop rather than a re-render of a burned-in bitmap.
-      toBlob() {
+    // WHY: no dependency array; a window resize changes the canvas size without a render of ours.
+    useEffect(() => {
+      const measure = () => {
         const canvas = canvasRef.current;
-        if (!canvas || !imageRef.current) return Promise.resolve(null);
-
-        return canvasToBlob(canvas);
-      },
-    }), []);
-
-    // clientWidth/clientLeft, not the rect's border box: the pane draws a 1px
-    // border and the app sets box-sizing: border-box, so the bitmap is inset
-    // from the rect by the border on every side. Scaling by the outer box put
-    // every shape a few bitmap pixels off from the pointer.
-    function pointFrom(event: ReactPointerEvent<HTMLCanvasElement>): Point {
-      const canvas = event.currentTarget;
-      const box = canvas.getBoundingClientRect();
-      return {
-        x:
-          ((event.clientX - box.left - canvas.clientLeft) / canvas.clientWidth) *
-          canvas.width,
-        y:
-          ((event.clientY - box.top - canvas.clientTop) / canvas.clientHeight) *
-          canvas.height,
+        setFit(
+          canvas && canvas.width > 0 && canvas.clientWidth > 0
+            ? Math.round((canvas.clientWidth / canvas.width) * 100)
+            : 100,
+        );
       };
-    }
+      measure();
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    });
+
+    useImperativeHandle(
+      ref,
+      () => ({
+        // WHY: flattened only here; while editing, steps stay a list so undo is a pop, not a re-render.
+        toBlob() {
+          commitText();
+          const canvas = canvasRef.current;
+          const image = imageRef.current;
+          if (!canvas || !image) return Promise.resolve(null);
+
+          const crop = cropOf(historyRef.current.done, {
+            width: image.naturalWidth,
+            height: image.naturalHeight,
+          });
+          paintCanvas(canvas, image, crop, shapesOf(historyRef.current.done));
+          return canvasToBlob(canvas);
+        },
+        cancelText() {
+          if (!textRef.current) return false;
+          setText(null);
+          return true;
+        },
+      }),
+      [commitText, setText],
+    );
 
     const readFile = useCallback(
       (file: File | null | undefined) => {
         if (!file) return;
 
-        // `accept` is advisory — a drag-and-drop, or a file manager that ignores
-        // it, still reaches this handler — so the type and the size are checked
-        // here rather than trusted from the picker.
+        // WHY: `accept` is advisory; drag-and-drop still reaches this handler, so type and size are checked here.
         if (file.type !== UPLOAD_MIME || file.size > UPLOAD_LIMIT_BYTES) {
           setRejected(true);
           return;
@@ -212,11 +397,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       [onImageChosen],
     );
 
-    // On `document`, not as an onPaste prop: a paste goes to whatever has focus,
-    // and this pane is a plain <div> with no tabindex. With the caret in the
-    // description textarea — where a reporter's focus actually is — an onPaste
-    // here would never fire. Removed on unmount, so it cannot swallow pastes
-    // once the dialog is closed.
+    // WHY: on document, not onPaste: the pane is a plain div with no tabindex, so a paste goes to whatever has focus.
     useEffect(() => {
       const onPaste = (event: ClipboardEvent) => {
         const file = event.clipboardData?.files[0];
@@ -230,113 +411,222 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       return () => document.removeEventListener("paste", onPaste);
     }, [readFile]);
 
-    // Both states can reject a file: the placeholder through its picker, the
-    // editor through the document-level paste above. Rendering this only in the
-    // placeholder meant a pasted JPEG over a successful capture was dropped in
-    // silence.
+    const crop = natural ? cropOf(history.done, natural) : null;
+    const percent = zoom ?? fit;
+    const scale = percent / 100;
+
+    function zoomBy(direction: 1 | -1) {
+      const next =
+        direction > 0
+          ? ZOOM_STEPS.find((step) => step > percent)
+          : [...ZOOM_STEPS].reverse().find((step) => step < percent);
+      if (next !== undefined) setZoom(next);
+    }
+
+    const upload = (
+      <input
+        ref={inputRef}
+        type="file"
+        accept={UPLOAD_MIME}
+        aria-label={labels.uploadLabel}
+        hidden={dataUrl !== null}
+        onChange={(event) => readFile(event.target.files?.[0])}
+      />
+    );
+
+    // WHY: render the error in both states; a pasted file over a capture is otherwise dropped silently.
     const rejection = rejected ? (
       <p role="alert" style={styles.error}>
         {labels.uploadRejected}
       </p>
     ) : null;
 
+    const toolbar = (
+      <div role="toolbar" aria-label={labels.toolbarLabel} style={styles.toolbar}>
+        {dataUrl ? (
+          <>
+            {DRAW_TOOLS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={tool === value}
+                style={toolStyle(tool === value)}
+                onClick={() => {
+                  commitText();
+                  setTool(value);
+                }}
+              >
+                {value === "arrow"
+                  ? labels.toolArrow
+                  : value === "rect"
+                    ? labels.toolRect
+                    : value === "freehand"
+                      ? labels.toolFreehand
+                      : value === "text"
+                        ? labels.toolText
+                        : labels.toolRedact}
+              </button>
+            ))}
+            <button
+              type="button"
+              style={styles.tool}
+              disabled={history.done.length === 0}
+              onClick={() => setHistory(undoHistory(historyRef.current))}
+            >
+              {labels.undo}
+            </button>
+            <button
+              type="button"
+              style={styles.tool}
+              disabled={history.undone.length === 0}
+              onClick={() => setHistory(redoHistory(historyRef.current))}
+            >
+              {labels.redo}
+            </button>
+            <button
+              type="button"
+              style={styles.tool}
+              disabled={percent <= ZOOM_STEPS[0]}
+              onClick={() => zoomBy(-1)}
+            >
+              {labels.zoomOut}
+            </button>
+            <output style={styles.zoomLevel}>{labels.zoomLevel(percent)}</output>
+            <button
+              type="button"
+              style={styles.tool}
+              disabled={percent >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+              onClick={() => zoomBy(1)}
+            >
+              {labels.zoomIn}
+            </button>
+            <button type="button" style={styles.tool} onClick={() => setZoom(null)}>
+              {labels.fit}
+            </button>
+            <button
+              type="button"
+              aria-pressed={tool === "crop"}
+              style={toolStyle(tool === "crop")}
+              onClick={() => {
+                commitText();
+                setTool("crop");
+              }}
+            >
+              {labels.crop}
+            </button>
+          </>
+        ) : null}
+        <button type="button" style={styles.tool} onClick={() => inputRef.current?.click()}>
+          {labels.replace}
+        </button>
+        <button
+          type="button"
+          aria-pressed={expanded}
+          style={toolStyle(expanded)}
+          onClick={onToggleExpanded}
+        >
+          {expanded ? labels.exitFullscreen : labels.enterFullscreen}
+        </button>
+      </div>
+    );
+
     if (!dataUrl) {
       return (
-        <div style={styles.placeholder}>
-          <span>{labels.captureFailed}</span>
-          <span>{labels.captureFallbackHint}</span>
-          <input
-            type="file"
-            accept={UPLOAD_MIME}
-            aria-label={labels.uploadLabel}
-            onChange={(event) => readFile(event.target.files?.[0])}
-          />
-          {rejection}
+        <div>
+          {toolbar}
+          <div style={styles.placeholder}>
+            <span>{labels.captureFailed}</span>
+            <span>{labels.captureFallbackHint}</span>
+            {upload}
+            {rejection}
+          </div>
         </div>
       );
     }
 
-    const toolLabel: Record<Tool, string> = {
-      arrow: labels.toolArrow,
-      rect: labels.toolRect,
-      freehand: labels.toolFreehand,
-      blackout: labels.toolBlackout,
-    };
-
     return (
       <div>
-        <div style={styles.toolbar}>
-          {TOOLS.map((value) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={tool === value}
-              style={tool === value ? { ...styles.tool, ...styles.toolActive } : styles.tool}
-              onClick={() => setTool(value)}
-            >
-              {toolLabel[value]}
-            </button>
-          ))}
-          <button
-            type="button"
-            style={styles.tool}
-            onClick={() => setShapes((current) => undoLast(current))}
-          >
-            {labels.undo}
-          </button>
+        {toolbar}
+        <div style={styles.canvasScroll}>
+          <div style={styles.canvasStage}>
+            <canvas
+              ref={canvasRef}
+              role="img"
+              aria-label={labels.screenshotTitle}
+              style={{
+                ...styles.image,
+                touchAction: "none",
+                cursor: tool === "text" ? "text" : "crosshair",
+                ...(crop && zoom !== null ? { width: `${Math.round((crop.width * zoom) / 100)}px` } : {}),
+              }}
+              onPointerDown={(event) => {
+                // WHY: primary button only; a right-click sends no pointerup, so the shape would never end.
+                if (event.button !== 0) return;
+                const bounds = currentCrop();
+                if (!bounds) return;
+                const at = pointFrom(event, bounds);
+
+                if (tool === "text") {
+                  commitText();
+                  textIdRef.current += 1;
+                  setText({ id: textIdRef.current, at, value: "" });
+                  return;
+                }
+
+                event.currentTarget.setPointerCapture(event.pointerId);
+                if (tool === "crop") {
+                  setActive({ kind: "crop", from: at, to: at });
+                } else {
+                  setActive({ kind: "shape", shape: beginShape(tool, at) });
+                }
+              }}
+              onPointerMove={(event) => {
+                const current = activeRef.current;
+                const bounds = currentCrop();
+                if (!current || !bounds) return;
+                const at = pointFrom(event, bounds);
+
+                if (current.kind === "crop") {
+                  setActive({ kind: "crop", from: current.from, to: at });
+                  return;
+                }
+
+                const next = extendShape(current.shape, at);
+                if (next !== current.shape) setActive({ kind: "shape", shape: next });
+              }}
+              onPointerUp={finish}
+              // WHY: a system-interrupted drag gets no pointerup; ending it here stops the next mousemove drawing.
+              onPointerCancel={finish}
+              onLostPointerCapture={finish}
+            />
+            {text && crop ? (
+              <input
+                key={text.id}
+                aria-label={labels.textInputLabel}
+                maxLength={200}
+                autoFocus
+                value={text.value}
+                onChange={(event) => {
+                  const draft = textRef.current;
+                  if (draft) setText({ ...draft, value: event.target.value });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return;
+                  event.preventDefault();
+                  commitText();
+                }}
+                onBlur={() => commitText(text.id)}
+                style={{
+                  ...styles.textInput,
+                  left: (text.at.x - crop.x) * scale,
+                  top: (text.at.y - crop.y) * scale,
+                }}
+              />
+            ) : null}
+          </div>
         </div>
-
-        <canvas
-          ref={canvasRef}
-          role="img"
-          aria-label={labels.screenshotTitle}
-          style={{ ...styles.image, touchAction: "none", cursor: "crosshair" }}
-          onPointerDown={(event) => {
-            // Primary button only. A right-click opens the context menu and
-            // never delivers a pointerup here, so drawing on one starts a shape
-            // that then follows the pointer around with nothing to end it.
-            if (event.button !== 0) return;
-
-            event.currentTarget.setPointerCapture(event.pointerId);
-            drawingRef.current = true;
-            // Read out here, never inside the updater below: React nulls
-            // currentTarget once the handler returns, and a state updater runs
-            // during the next render — so pointFrom(event) in there reads
-            // getBoundingClientRect off null and takes the whole panel down
-            // with it.
-            const at = pointFrom(event);
-            setShapes((current) => [...current, beginShape(tool, at)]);
-          }}
-          onPointerMove={(event) => {
-            if (!drawingRef.current) return;
-            const at = pointFrom(event);
-            setShapes((current) => {
-              if (current.length === 0) return current;
-
-              const last = current[current.length - 1];
-              const next = extendShape(last, at);
-              // extendShape hands back the same shape for a freehand step too
-              // small to be a line. Returning `current` unchanged means React
-              // bails out of the render entirely, rather than re-rendering with
-              // a list that says the same thing.
-              return next === last ? current : [...current.slice(0, -1), next];
-            });
-          }}
-          onPointerUp={() => {
-            drawingRef.current = false;
-          }}
-          // A drag interrupted by the system — a touch becoming a scroll, the
-          // tab losing the pointer — delivers one of these and no pointerup. Left
-          // out, the next mousemove with no button held goes on drawing.
-          onPointerCancel={() => {
-            drawingRef.current = false;
-          }}
-          onLostPointerCapture={() => {
-            drawingRef.current = false;
-          }}
-        />
-
         {rejection}
+        {upload}
       </div>
     );
   },

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -30,6 +31,9 @@ var pngSignature = []byte("\x89PNG\r\n\x1a\n")
 // DefaultLimits value, so the zero Limits means the default caps.
 func (l Limits) withDefaults() Limits {
 	d := DefaultLimits()
+	if l.Summary <= 0 {
+		l.Summary = d.Summary
+	}
 	if l.Description <= 0 {
 		l.Description = d.Description
 	}
@@ -74,7 +78,21 @@ func parseReport(r *http.Request, lim Limits) (Report, error) {
 		}
 	}()
 
+	kind := strings.TrimSpace(r.FormValue("kind"))
+	if kind == "" {
+		kind = "bug"
+	}
+	if !slices.Contains(BugKinds, kind) {
+		return Report{}, refusal{http.StatusUnprocessableEntity, "Kind must be bug or feature."}
+	}
+	summary := strings.TrimSpace(r.FormValue("summary"))
+	if utf8.RuneCountInString(summary) > lim.Summary {
+		return Report{}, refusal{http.StatusUnprocessableEntity,
+			fmt.Sprintf("Summary must be at most %d characters.", lim.Summary)}
+	}
 	report := Report{
+		Kind:        kind,
+		Summary:     summary,
 		Description: strings.TrimSpace(r.FormValue("description")),
 		Impact:      strings.TrimSpace(r.FormValue("impact")),
 		Area:        strings.TrimSpace(r.FormValue("area")),

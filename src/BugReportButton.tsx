@@ -7,12 +7,12 @@ import {
   type BugReportEnvironment,
   type BugReportSubmit,
 } from "./payload.js";
-import { mergeLabels, type BugReportLabels } from "./labels.js";
+import { mergeLabels, type BugReportLabelOverrides, type BugReportLabels } from "./labels.js";
 
 export type BugReportButtonProps = {
   submit: BugReportSubmit;
   getContext: () => BugReportContext;
-  labels?: Partial<BugReportLabels>;
+  labels?: BugReportLabelOverrides;
   diagnostics?: () => unknown;
   /** See capture.ts — which image origins are worth trying to inline. */
   allowedImageOrigins?: string[];

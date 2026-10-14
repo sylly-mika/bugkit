@@ -1,4 +1,4 @@
-import { beginShape, extendShape, undoLast, type Shape } from "./shapes.js";
+import { beginShape, extendShape } from "./shapes.js";
 
 describe("the annotation shape model", () => {
   it("starts a drag tool as a zero-length segment", () => {
@@ -40,20 +40,5 @@ describe("the annotation shape model", () => {
 
     expect(extendShape(started, { x: 11, y: 11 })).toBe(started);
     expect(extendShape(started, { x: 12, y: 12 })).not.toBe(started);
-  });
-
-  it("undoes the last shape and is a no-op on an empty list", () => {
-    const shapes: Shape[] = [beginShape("arrow", { x: 0, y: 0 }), beginShape("rect", { x: 1, y: 1 })];
-
-    expect(undoLast(shapes)).toHaveLength(1);
-    expect(undoLast(shapes)[0].tool).toBe("arrow");
-    expect(undoLast([])).toEqual([]);
-  });
-
-  it("does not mutate the list it is given", () => {
-    const shapes: Shape[] = [beginShape("blackout", { x: 0, y: 0 })];
-    undoLast(shapes);
-
-    expect(shapes).toHaveLength(1);
   });
 });

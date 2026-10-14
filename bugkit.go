@@ -18,11 +18,15 @@ type Reporter struct {
 	ID, Name, Email string
 }
 
+// BugKinds lists the values a report's kind may take. A report without a kind
+// is a bug.
+var BugKinds = []string{"bug", "feature"}
+
 type Report struct {
-	Description, Impact, Area               string
-	Diagnostics                             json.RawMessage
-	Version, Viewport, RequestID, UserAgent string
-	Screenshot                              []byte
+	Kind, Summary, Description, Impact, Area string
+	Diagnostics                              json.RawMessage
+	Version, Viewport, RequestID, UserAgent  string
+	Screenshot                               []byte
 }
 
 type Result struct {
@@ -44,14 +48,15 @@ type SinkError struct {
 func (e *SinkError) Error() string { return fmt.Sprintf("bugkit: intake answered %d", e.Status) }
 
 type Limits struct {
-	Description, Area, Version, Viewport, RequestID, UserAgent int
-	Diagnostics, Screenshot                                    int64
+	Summary, Description, Area, Version, Viewport, RequestID, UserAgent int
+	Diagnostics, Screenshot                                             int64
 }
 
 // DefaultLimits returns the caps for a report: the text fields in characters
 // (runes), diagnostics and the screenshot in bytes.
 func DefaultLimits() Limits {
 	return Limits{
+		Summary:     200,
 		Description: 5000,
 		Area:        512,
 		Version:     128,

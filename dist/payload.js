@@ -1,4 +1,6 @@
 export const BUG_IMPACTS = ["blocks", "workaround", "cosmetic"];
+export const BUG_KINDS = ["bug", "feature"];
+export const SUMMARY_LIMIT = 200;
 /** The intake route's cap on the diagnostics part (I1): 32 KiB of UTF-8. */
 export const DIAGNOSTICS_LIMIT_BYTES = 32_768;
 export function readEnvironment() {
@@ -63,6 +65,8 @@ function nullEntriesPart(environment) {
 }
 export function buildBugReportForm(payload) {
     const form = new FormData();
+    form.append("kind", payload.kind);
+    form.append("summary", payload.summary);
     form.append("description", payload.description);
     form.append("impact", payload.impact);
     form.append("area", payload.context.area);
@@ -107,9 +111,12 @@ function jsonLine(value) {
 export function reportAsText(payload) {
     const { context, environment } = payload;
     const requestId = requestIdOf(context);
+    const summary = payload.summary.trim();
     const lines = [
+        ...(summary === "" ? [] : [summary, ""]),
         payload.description,
         "",
+        `Kind: ${payload.kind}`,
         `Impact: ${payload.impact}`,
         `Page: ${context.area}`,
         `Version: ${context.version}`,

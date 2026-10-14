@@ -17,8 +17,10 @@ vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
 describe("package entry", () => {
   it("exports exactly the public names", () => {
     expect(Object.keys(kit).sort()).toEqual([
+      "BUG_KINDS",
       "BugReportButton",
       "BugReportDialog",
+      "SUMMARY_LIMIT",
       "buildBugReportForm",
       "defaultLabels",
     ]);
@@ -38,9 +40,10 @@ describe("package entry", () => {
     expect(screen.getByRole("button", { name: "Report" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Report" }));
-    await user.type(await screen.findByLabelText(kit.defaultLabels.descriptionLabel), "Save fails");
-    await user.click(screen.getByLabelText(kit.defaultLabels.impactBlocks));
-    await user.click(screen.getByRole("button", { name: kit.defaultLabels.send }));
+    await user.type(await screen.findByLabelText(kit.defaultLabels.summaryLabel), "Save");
+    await user.type(await screen.findByLabelText(kit.defaultLabels.bug.descriptionLabel), "Save fails");
+    await user.click(screen.getByLabelText(kit.defaultLabels.bug.impactBlocks));
+    await user.click(screen.getByRole("button", { name: kit.defaultLabels.bug.send }));
 
     await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
     const form = submit.mock.calls[0][0];

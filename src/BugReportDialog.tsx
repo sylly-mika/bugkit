@@ -3,10 +3,12 @@ import { createPortal } from "react-dom";
 import { ScreenshotPane, type ScreenshotPaneHandle } from "./ScreenshotPane.js";
 import { styles } from "./styles.js";
 import {
-  BUG_IMPACTS,
+  BUG_KINDS,
+  SUMMARY_LIMIT,
   buildBugReportForm,
   reportAsText,
   type BugImpact,
+  type BugKind,
   type BugReportContext,
   type BugReportEnvironment,
   type BugReportPayload,
@@ -14,7 +16,8 @@ import {
   type BugReportSubmit,
 } from "./payload.js";
 import type { CaptureResult } from "./capture.js";
-import { formatFiled, type BugReportLabels } from "./labels.js";
+import { formatFiled, type BugReportKindLabels, type BugReportLabels } from "./labels.js";
+import { DESCRIPTION_LIMIT, clearDraft, readDraft, writeDraft, type Draft } from "./draft.js";
 
 export type BugReportDialogProps = {
   capture: CaptureResult;
@@ -32,23 +35,9 @@ type Phase =
   | { name: "sent"; number: number }
   | { name: "failed"; payload: BugReportPayload; detail: string | null };
 
-/** Whether the last copy attempt succeeded, failed, or has not happened. */
 type CopyState = "idle" | "copied" | "manual";
 
-const IMPACT_LABEL: Record<BugImpact, keyof BugReportLabels> = {
-  blocks: "impactBlocks",
-  workaround: "impactWorkaround",
-  cosmetic: "impactCosmetic",
-};
-
-/** The backend refuses a longer description with a 422, so the field stops first. */
-const DESCRIPTION_LIMIT = 5_000;
-
-/**
- * The backend refuses a larger screenshot with a 413. Past the cap the image is
- * dropped rather than the report: the words and the diagnostics are what make a
- * report actionable, and a refusal would cost all three.
- */
+// WHY: the backend refuses a larger screenshot with a 413; past the cap the image is dropped, never the report.
 const SCREENSHOT_LIMIT_BYTES = 5 * 1024 * 1024;
 
 const COPIED_RESET_MS = 4_000;
@@ -57,20 +46,21 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const TITLE_ID = "bug-report-title";
+const KIND_ID = "bug-report-kind-label";
+const SUMMARY_ID = "bug-report-summary";
+const SUMMARY_ERROR_ID = "bug-report-summary-error";
 const DESCRIPTION_ID = "bug-report-description";
 const ERROR_ID = "bug-report-description-error";
 const COUNTER_ID = "bug-report-description-count";
+const IMPACT_ID = "bug-report-impact-label";
+const TECHNICAL_ID = "bug-report-technical";
+const TECHNICAL_HINT_ID = "bug-report-technical-hint";
+const SHARED_ID = "bug-report-shared";
+const SHARED_HINT_ID = "bug-report-shared-hint";
+const DISCARD_TITLE_ID = "bug-report-discard-title";
+const DISCARD_BODY_ID = "bug-report-discard-body";
 
-/**
- * Defer to whoever locked the body first, and hand back the undo.
- *
- * A counter of our own cannot work here: the folder must not import the app's
- * Modal, so the two counters would be independent, and both restore the same
- * `document.body.style.overflow`. Whichever unlocks last wins — and when that is
- * this dialog it writes back the "hidden" it captured while the modal held the
- * lock, leaving the panel unscrollable until a reload. Doing nothing when the
- * body is already hidden leaves exactly one owner of the property.
- */
+// WHY: the Modal restores the same body overflow; a second counter would write back a stale "hidden".
 function lockBodyScroll(): () => void {
   if (document.body.style.overflow === "hidden") return () => {};
 
@@ -84,18 +74,41 @@ function lockBodyScroll(): () => void {
 export function BugReportDialog(props: BugReportDialogProps) {
   const { capture, labels, context, environment, diagnostics, submit, onClose } = props;
 
+  const [restored] = useState<Draft | null>(readDraft);
+  const [kind, setKind] = useState<BugKind>(restored?.kind ?? "bug");
+  const [summary, setSummary] = useState(restored?.summary ?? "");
+  const [description, setDescription] = useState(restored?.description ?? "");
+  const [impact, setImpact] = useState<BugImpact>(restored?.impact ?? "workaround");
+  const [draftSaved, setDraftSaved] = useState(restored !== null);
   const [dataUrl, setDataUrl] = useState(capture.ok ? capture.dataUrl : null);
-  const [description, setDescription] = useState("");
-  const [impact, setImpact] = useState<BugImpact>("workaround");
-  const [invalid, setInvalid] = useState(false);
+  const [summaryInvalid, setSummaryInvalid] = useState(false);
+  const [descriptionInvalid, setDescriptionInvalid] = useState(false);
   const [oversize, setOversize] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>("idle");
   const [phase, setPhase] = useState<Phase>({ name: "editing" });
+  const [expanded, setExpanded] = useState(false);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
+  const [sharedOpen, setSharedOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [markedUp, setMarkedUp] = useState(false);
   const paneRef = useRef<ScreenshotPaneHandle>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const summaryRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const successRef = useRef<HTMLParagraphElement>(null);
   const manualRef = useRef<HTMLTextAreaElement>(null);
+  const keepEditingRef = useRef<HTMLButtonElement>(null);
+
+  const k: BugReportKindLabels = labels[kind];
+  const sending = phase.name === "sending";
+  const sent = phase.name === "sent";
+  const hasWork = !sent && (summary !== "" || description !== "" || markedUp);
+
+  const impactOptions: { value: BugImpact; label: string; hint: string }[] = [
+    { value: "blocks", label: k.impactBlocks, hint: k.impactBlocksHint },
+    { value: "workaround", label: k.impactWorkaround, hint: k.impactWorkaroundHint },
+    { value: "cosmetic", label: k.impactCosmetic, hint: k.impactCosmeticHint },
+  ];
 
   useEffect(() => {
     const trapTab = (event: KeyboardEvent) => {
@@ -121,42 +134,39 @@ export function BugReportDialog(props: BugReportDialogProps) {
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        // While this dialog is open the key is ours, whatever we do with it. The
-        // app's Modal listens for Escape on `window` too and this dialog opens on
-        // top of one, so without stopping it here a single press closes both and
-        // takes the form the reporter was filling in with it.
+        // WHY: the app's Modal also listens for Escape on window; without stopping it here one press closes both.
         event.stopImmediatePropagation();
-        // Not while sending: the request is already on its way, and closing here
-        // would lose the reporter's words with no way to tell them whether it
-        // landed.
-        if (phase.name !== "sending") onClose();
+        // WHY: while sending, Escape must not close: the reporter could not tell whether their words landed.
+        if (sending) return;
+        // WHY: a text box open on the screenshot takes Escape first, so it ends the edit, not the report.
+        if (paneRef.current?.cancelText()) return;
+        if (confirming) {
+          setConfirming(false);
+          return;
+        }
+        if (hasWork) setConfirming(true);
+        else onClose();
         return;
       }
       if (event.key === "Tab") trapTab(event);
-      // The page's search shortcut, also on `window`. Letting it through moves
-      // focus to a box hidden under this overlay: the reporter types into what
-      // they cannot see, Enter navigates the page underneath, and the Escape
-      // they reach for next closes the report.
+      // WHY: the page's search shortcut is also on window; letting it through focuses a box hidden under this overlay.
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.stopImmediatePropagation();
         event.preventDefault();
       }
     };
-    // Capture phase, so this runs before any listener the page registered on
-    // `window` in the usual way — stopping propagation from the bubble phase
-    // would be too late to keep the modal underneath from seeing the key.
+    // WHY: capture phase, so it runs before the page's window listeners; bubble-phase stopping comes too late.
     window.addEventListener("keydown", onKey, { capture: true });
     return () => window.removeEventListener("keydown", onKey, { capture: true });
-  }, [onClose, phase.name]);
+  }, [onClose, sending, confirming, hasWork]);
 
   useEffect(() => {
     const restoreTo =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     const unlockBodyScroll = lockBodyScroll();
-    // The dialog is a portal at the end of <body>, so without this the caret
-    // stays behind on the page the reporter just photographed.
-    descriptionRef.current?.focus();
+    // WHY: the dialog is a portal at the end of body; without this the caret stays on the photographed page.
+    summaryRef.current?.focus();
 
     return () => {
       unlockBodyScroll();
@@ -165,8 +175,12 @@ export function BugReportDialog(props: BugReportDialogProps) {
   }, []);
 
   useEffect(() => {
-    if (phase.name === "sent") successRef.current?.focus();
-  }, [phase.name]);
+    if (sent) successRef.current?.focus();
+  }, [sent]);
+
+  useEffect(() => {
+    if (confirming) keepEditingRef.current?.focus();
+  }, [confirming]);
 
   useEffect(() => {
     if (copyState !== "copied") return;
@@ -180,28 +194,73 @@ export function BugReportDialog(props: BugReportDialogProps) {
     manualRef.current?.select();
   }, [copyState]);
 
-  const sending = phase.name === "sending";
+  // WHY: storage that refuses the write must not claim a save; the indicator reports
+  // only what the browser confirmed.
+  function persist(next: Draft) {
+    if (next.summary.trim() === "" && next.description.trim() === "") {
+      clearDraft();
+      setDraftSaved(false);
+    } else {
+      setDraftSaved(writeDraft(next));
+    }
+  }
+
+  function changeKind(value: BugKind) {
+    setKind(value);
+    persist({ kind: value, summary, description, impact });
+  }
+
+  function changeSummary(value: string) {
+    setSummary(value);
+    if (summaryInvalid) setSummaryInvalid(false);
+    persist({ kind, summary: value, description, impact });
+  }
+
+  function changeDescription(value: string) {
+    setDescription(value);
+    if (descriptionInvalid) setDescriptionInvalid(false);
+    persist({ kind, summary, description: value, impact });
+  }
+
+  function changeImpact(value: BugImpact) {
+    setImpact(value);
+    persist({ kind, summary, description, impact: value });
+  }
+
+  function requestClose() {
+    if (sending) return;
+    if (hasWork) setConfirming(true);
+    else onClose();
+  }
+
+  function discard() {
+    clearDraft();
+    onClose();
+  }
 
   async function send() {
-    // aria-disabled leaves the button clickable, so the guard the attribute only
-    // advertises has to live here.
+    // WHY: aria-disabled leaves the button clickable, so the guard has to live in the handler.
     if (sending) return;
 
-    if (description.trim() === "") {
-      setInvalid(true);
+    const missingSummary = summary.trim() === "";
+    const missingDescription = description.trim() === "";
+    setSummaryInvalid(missingSummary);
+    setDescriptionInvalid(!missingSummary && missingDescription);
+    if (missingSummary) {
+      summaryRef.current?.focus();
+      return;
+    }
+    if (missingDescription) {
       descriptionRef.current?.focus();
       return;
     }
 
-    setInvalid(false);
     setPhase({ name: "sending" });
 
-    // Text-only until the export says otherwise, and declared out here so the
-    // failure phase can hand the reporter their words back however far the
-    // attempt got. The export itself is awaited INSIDE the try: a handle that
-    // rejects rather than resolving null would otherwise leave the dialog stuck
-    // on "sending", with Escape and Cancel both refusing to close it.
+    // WHY: declared outside the try so failure can return the words; an export that rejects must not strand "sending".
     let payload: BugReportPayload = {
+      kind,
+      summary: summary.trim(),
       description: description.trim(),
       impact,
       context,
@@ -218,12 +277,11 @@ export function BugReportDialog(props: BugReportDialogProps) {
       payload = { ...payload, screenshot: tooLarge ? null : screenshot };
 
       const result: BugReportResult = await submit(buildBugReportForm(payload));
+      clearDraft();
+      setDraftSaved(false);
       setPhase({ name: "sent", number: result.number });
     } catch (error) {
-      // The reporter's words must survive a network blip; the failure state
-      // hands them back rather than asking them to type it all again. The
-      // server's own sentence goes with them — "not configured" and "try again
-      // in 40 seconds" are different problems and only one is worth retrying.
+      // WHY: keep the server's sentence too; "not configured" and "try again" need different actions.
       setPhase({
         name: "failed",
         payload,
@@ -236,9 +294,6 @@ export function BugReportDialog(props: BugReportDialogProps) {
     const text = reportAsText(payload);
 
     try {
-      // Absent outside a secure context, and a present one still rejects when
-      // the document is not focused or permission is refused. Both end in the
-      // same place: the text on screen, selected, for a manual Ctrl+C.
       if (!window.navigator.clipboard) {
         throw new Error("clipboard unavailable");
       }
@@ -249,10 +304,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
     }
   }
 
-  // Everything the submission carries, so nobody sends what they have not seen.
-  // The request id is the host's own reference and is shown only when the host
-  // gives one. The reporter's identity is not listed: the server adds it from
-  // its own session, so nothing here can name the reporter wrongly.
+  // WHY: the reporter's identity is left out; the server adds it from its own session.
   const contextRows: [string, string][] = [
     [labels.contextRoute, context.area],
     [labels.contextVersion, context.version],
@@ -264,22 +316,50 @@ export function BugReportDialog(props: BugReportDialogProps) {
     [labels.contextTimestamp, environment.at],
   ];
 
-  const describedBy = invalid ? `${ERROR_ID} ${COUNTER_ID}` : COUNTER_ID;
+  const descriptionDescribedBy = descriptionInvalid ? `${ERROR_ID} ${COUNTER_ID}` : COUNTER_ID;
 
   return createPortal(
     <div style={styles.overlay} role="dialog" aria-modal="true" aria-labelledby={TITLE_ID}>
-      <div ref={panelRef} style={styles.panel}>
-        <h2 id={TITLE_ID} style={styles.title}>
-          {labels.dialogTitle}
-        </h2>
+      <div ref={panelRef} style={styles.editor}>
+        <header style={styles.header}>
+          <button
+            type="button"
+            aria-label={labels.back}
+            style={styles.iconButton}
+            onClick={requestClose}
+            aria-disabled={sending}
+          >
+            ←
+          </button>
+          <div style={styles.headerText}>
+            <h2 id={TITLE_ID} style={styles.title}>
+              {k.title}
+            </h2>
+            <p style={styles.muted}>{k.subtitle}</p>
+          </div>
+          <div style={styles.headerEnd}>
+            {draftSaved && !sent ? (
+              <p style={styles.muted}>
+                <span aria-hidden="true">✓ </span>
+                <span>{labels.saved}</span>
+              </p>
+            ) : null}
+            {sent ? null : (
+              <button
+                type="button"
+                style={sending ? { ...styles.primaryButton, ...styles.buttonBusy } : styles.primaryButton}
+                onClick={send}
+                aria-disabled={sending}
+              >
+                {sending ? labels.sending : k.send}
+              </button>
+            )}
+          </div>
+        </header>
 
-        {phase.name === "sent" ? (
+        {sent ? (
           <div style={styles.phaseRegion}>
-            {/*
-             * The live region is the outcome, not the Close button: a region
-             * that contains a control announces the control too, and "Close"
-             * read out after the issue number is noise.
-             */}
+            {/* WHY: the live region is the outcome only; a Close button inside it would be announced too. */}
             <div role="status">
               <p ref={successRef} tabIndex={-1}>
                 {labels.successTitle}
@@ -294,160 +374,250 @@ export function BugReportDialog(props: BugReportDialogProps) {
             </div>
           </div>
         ) : (
-          <>
-            <div style={styles.columns}>
-              <div style={styles.imageColumn}>
-                <ScreenshotPane
-                  ref={paneRef}
-                  dataUrl={dataUrl}
-                  labels={labels}
-                  onImageChosen={setDataUrl}
-                />
-              </div>
+          <div style={styles.body}>
+            <div style={styles.imageColumn}>
+              <ScreenshotPane
+                ref={paneRef}
+                dataUrl={dataUrl}
+                labels={labels}
+                onImageChosen={setDataUrl}
+                expanded={expanded}
+                onToggleExpanded={() => setExpanded(!expanded)}
+                onMarkupChange={setMarkedUp}
+              />
+            </div>
 
+            {expanded ? null : (
               <div style={styles.formColumn}>
-                <div>
+                <div role="radiogroup" aria-labelledby={KIND_ID} style={styles.section}>
+                  <p id={KIND_ID} style={styles.label}>
+                    {labels.kindLabel}
+                  </p>
+                  {BUG_KINDS.map((value) => {
+                    const id = `bug-report-kind-${value}`;
+                    return (
+                      <label key={value} style={styles.radioRow} htmlFor={id}>
+                        <input
+                          id={id}
+                          type="radio"
+                          name="bug-report-kind"
+                          value={value}
+                          checked={kind === value}
+                          onChange={() => changeKind(value)}
+                        />
+                        {value === "bug" ? labels.kindBug : labels.kindFeature}
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div style={styles.section}>
+                  <label htmlFor={SUMMARY_ID} style={styles.label}>
+                    {labels.summaryLabel}
+                  </label>
+                  <input
+                    id={SUMMARY_ID}
+                    ref={summaryRef}
+                    type="text"
+                    style={styles.input}
+                    placeholder={labels.summaryPlaceholder}
+                    maxLength={SUMMARY_LIMIT}
+                    aria-required="true"
+                    aria-invalid={summaryInvalid}
+                    aria-describedby={summaryInvalid ? SUMMARY_ERROR_ID : undefined}
+                    value={summary}
+                    onChange={(event) => changeSummary(event.target.value)}
+                  />
+                  {summaryInvalid ? (
+                    <p id={SUMMARY_ERROR_ID} role="alert" style={styles.error}>
+                      {labels.summaryRequired}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div style={styles.section}>
                   <label htmlFor={DESCRIPTION_ID} style={styles.label}>
-                    {labels.descriptionLabel}
+                    {k.descriptionLabel}
                   </label>
                   <textarea
                     id={DESCRIPTION_ID}
                     ref={descriptionRef}
                     style={styles.textarea}
-                    placeholder={labels.descriptionPlaceholder}
+                    placeholder={k.descriptionPlaceholder}
                     maxLength={DESCRIPTION_LIMIT}
                     required
-                    aria-invalid={invalid}
-                    aria-describedby={describedBy}
+                    aria-invalid={descriptionInvalid}
+                    aria-describedby={descriptionDescribedBy}
                     value={description}
-                    onChange={(event) => {
-                      setDescription(event.target.value);
-                      if (invalid) setInvalid(false);
-                    }}
+                    onChange={(event) => changeDescription(event.target.value)}
                   />
                   <p id={COUNTER_ID} style={styles.counter}>
                     {labels.characterCount(description.length, DESCRIPTION_LIMIT)}
                   </p>
-                  {invalid ? (
+                  {descriptionInvalid ? (
                     <p id={ERROR_ID} role="alert" style={styles.error}>
-                      {labels.descriptionRequired}
+                      {k.descriptionRequired}
                     </p>
                   ) : null}
                 </div>
 
-                <fieldset style={{ border: "none", margin: 0, padding: 0 }}>
-                  <legend style={styles.label}>{labels.impactLabel}</legend>
-                  {BUG_IMPACTS.map((value) => (
-                    <label
-                      key={value}
-                      style={styles.radioRow}
-                      htmlFor={`bug-report-impact-${value}`}
-                    >
-                      <input
-                        id={`bug-report-impact-${value}`}
-                        type="radio"
-                        name="bug-report-impact"
-                        checked={impact === value}
-                        onChange={() => setImpact(value)}
-                      />
-                      {labels[IMPACT_LABEL[value]] as string}
-                    </label>
-                  ))}
-                </fieldset>
-
-                <div>
-                  <p style={styles.label}>{labels.contextTitle}</p>
-                  <table style={styles.contextTable}>
-                    <tbody>
-                      {contextRows.map(([key, value]) => (
-                        <tr key={key}>
-                          <th scope="row" style={styles.contextKey}>
-                            {key}
-                          </th>
-                          <td style={styles.contextValue}>{value}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div role="radiogroup" aria-labelledby={IMPACT_ID} style={styles.section}>
+                  <p id={IMPACT_ID} style={styles.label}>
+                    {k.impactLabel}
+                  </p>
+                  {impactOptions.map(({ value, label, hint }) => {
+                    const id = `bug-report-impact-${value}`;
+                    const hintId = `${id}-hint`;
+                    return (
+                      <div key={value}>
+                        <label style={styles.radioRow} htmlFor={id}>
+                          <input
+                            id={id}
+                            type="radio"
+                            name="bug-report-impact"
+                            checked={impact === value}
+                            aria-describedby={hintId}
+                            onChange={() => changeImpact(value)}
+                          />
+                          {label}
+                        </label>
+                        <p id={hintId} style={styles.muted}>
+                          {hint}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
-              </div>
-            </div>
 
-            <div style={styles.phaseRegion}>
-              {/*
-               * The live region is the sentence and nothing else. With the copy
-               * button and the fallback textarea inside it, a blocked clipboard
-               * read the entire report — context table, diagnostics and all —
-               * out loud. It stays mounted while editing so a screen reader has
-               * a region to watch before there is anything to announce.
-               */}
-              <div role="status">
-                {phase.name === "sending" ? <p style={styles.muted}>{labels.sending}</p> : null}
-
-                {phase.name === "failed" ? (
-                  <>
-                    <p style={styles.error}>{labels.failureTitle}</p>
-                    {phase.detail ? <p style={styles.muted}>{phase.detail}</p> : null}
-                    {oversize ? <p style={styles.muted}>{labels.screenshotTooLarge}</p> : null}
-                  </>
-                ) : null}
-              </div>
-
-              {phase.name === "failed" ? (
-                <>
+                <div style={styles.section}>
                   <button
                     type="button"
-                    style={styles.secondaryButton}
-                    onClick={() => copyReport(phase.payload)}
+                    style={styles.disclosure}
+                    aria-expanded={technicalOpen}
+                    aria-controls={TECHNICAL_ID}
+                    aria-describedby={TECHNICAL_HINT_ID}
+                    onClick={() => setTechnicalOpen(!technicalOpen)}
                   >
-                    {copyState === "copied" ? labels.copied : labels.copyToClipboard}
+                    {labels.technicalTitle}
                   </button>
-                  {copyState === "manual" ? (
+                  <p id={TECHNICAL_HINT_ID} style={styles.muted}>
+                    {labels.technicalHint}
+                  </p>
+                  <div id={TECHNICAL_ID}>
+                    {technicalOpen ? (
+                      <table style={styles.contextTable}>
+                        <tbody>
+                          {contextRows.map(([key, value]) => (
+                            <tr key={key}>
+                              <th scope="row" style={styles.contextKey}>
+                                {key}
+                              </th>
+                              <td style={styles.contextValue}>{value}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div style={styles.section}>
+                  <button
+                    type="button"
+                    style={styles.disclosure}
+                    aria-expanded={sharedOpen}
+                    aria-controls={SHARED_ID}
+                    aria-describedby={SHARED_HINT_ID}
+                    onClick={() => setSharedOpen(!sharedOpen)}
+                  >
+                    {labels.sharedTitle}
+                  </button>
+                  <p id={SHARED_HINT_ID} style={styles.muted}>
+                    {labels.sharedHint}
+                  </p>
+                  <div id={SHARED_ID}>
+                    {sharedOpen ? <p style={styles.muted}>{labels.sharedBody}</p> : null}
+                  </div>
+                </div>
+
+                <div role="note" style={styles.note}>
+                  <p style={styles.label}>{labels.sensitiveTitle}</p>
+                  <p style={styles.muted}>{labels.sensitiveBody}</p>
+                </div>
+
+                <div style={styles.phaseRegion}>
+                  {/* WHY: the live region holds only the sentence; a copy button in it would read the report aloud. */}
+                  <div role="status">
+                    {phase.name === "sending" ? (
+                      <p style={styles.muted}>{labels.sending}</p>
+                    ) : null}
+
+                    {phase.name === "failed" ? (
+                      <>
+                        <p style={styles.error}>{labels.failureTitle}</p>
+                        {phase.detail ? <p style={styles.muted}>{phase.detail}</p> : null}
+                        {oversize ? <p style={styles.muted}>{labels.screenshotTooLarge}</p> : null}
+                      </>
+                    ) : null}
+                  </div>
+
+                  {phase.name === "failed" ? (
                     <>
-                      <p style={styles.muted}>{labels.copyManually}</p>
-                      <textarea
-                        ref={manualRef}
-                        readOnly
-                        style={styles.textarea}
-                        aria-label={labels.copyToClipboard}
-                        value={reportAsText(phase.payload)}
-                      />
+                      <button
+                        type="button"
+                        style={styles.secondaryButton}
+                        onClick={() => copyReport(phase.payload)}
+                      >
+                        {copyState === "copied" ? labels.copied : labels.copyToClipboard}
+                      </button>
+                      {copyState === "manual" ? (
+                        <>
+                          <p style={styles.muted}>{labels.copyManually}</p>
+                          <textarea
+                            ref={manualRef}
+                            readOnly
+                            style={styles.textarea}
+                            aria-label={labels.copyToClipboard}
+                            value={reportAsText(phase.payload)}
+                          />
+                        </>
+                      ) : null}
                     </>
                   ) : null}
-                </>
-              ) : null}
-            </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
-            {/*
-             * aria-disabled and a guard in the handler, never `disabled`: a
-             * browser blurs an element the moment it is disabled, so pressing
-             * Send would throw a keyboard reporter's focus to <body> for the
-             * length of the request — and the focus trap has nothing to bring
-             * it back from there. The launcher refuses `disabled` for the same
-             * reason.
-             */}
+        {confirming ? (
+          <div
+            role="alertdialog"
+            aria-labelledby={DISCARD_TITLE_ID}
+            aria-describedby={DISCARD_BODY_ID}
+            style={styles.confirm}
+          >
+            <h3 id={DISCARD_TITLE_ID} style={styles.title}>
+              {labels.discardTitle}
+            </h3>
+            <p id={DISCARD_BODY_ID} style={styles.muted}>
+              {labels.discardBody}
+            </p>
             <div style={styles.actions}>
               <button
                 type="button"
-                style={sending ? { ...styles.secondaryButton, ...styles.buttonBusy } : styles.secondaryButton}
-                onClick={() => {
-                  if (!sending) onClose();
-                }}
-                aria-disabled={sending}
+                ref={keepEditingRef}
+                style={styles.primaryButton}
+                onClick={() => setConfirming(false)}
               >
-                {labels.cancel}
+                {labels.keepEditing}
               </button>
-              <button
-                type="button"
-                style={sending ? { ...styles.primaryButton, ...styles.buttonBusy } : styles.primaryButton}
-                onClick={send}
-                aria-disabled={sending}
-              >
-                {sending ? labels.sending : labels.send}
+              <button type="button" style={styles.secondaryButton} onClick={discard}>
+                {labels.discard}
               </button>
             </div>
-          </>
-        )}
+          </div>
+        ) : null}
       </div>
     </div>,
     document.body,

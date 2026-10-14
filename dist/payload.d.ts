@@ -1,5 +1,8 @@
 export declare const BUG_IMPACTS: readonly ["blocks", "workaround", "cosmetic"];
 export type BugImpact = (typeof BUG_IMPACTS)[number];
+export declare const BUG_KINDS: readonly ["bug", "feature"];
+export type BugKind = (typeof BUG_KINDS)[number];
+export declare const SUMMARY_LIMIT = 200;
 /** What the app's getContext returns: the page, the build and, when it has one, the request id. */
 export type BugReportContext = {
     area: string;
@@ -19,6 +22,8 @@ export type BugReportEnvironment = {
     at: string;
 };
 export type BugReportPayload = {
+    kind: BugKind;
+    summary: string;
     description: string;
     impact: BugImpact;
     context: BugReportContext;

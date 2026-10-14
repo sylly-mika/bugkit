@@ -89,7 +89,8 @@ check, if it has one), for example `POST /api/v1/bug-reports`; with echo,
 `multipart/form-data` of up to 6 MiB, with a screenshot of up to 5 MiB: raise
 any smaller body limit on this route.
 
-The browser sends the parts `description`, `impact` (`blocks`, `workaround`
+The browser sends the parts `kind` (`bug` or `feature`), `summary` (one line),
+`description`, `impact` (`blocks`, `workaround`
 or `cosmetic`), `area` (the route path, starting with `/`), `diagnostics`
 (JSON), `version`, `viewport`, `request_id` and the file part `screenshot`
 (PNG). The handler adds `user_agent` from the request (cut to 256 characters)
@@ -148,9 +149,9 @@ export function BugButton() {
   throw the server's `detail` sentence.
 - `getContext(): BugReportContext`: `{ area, version, requestId? }`, read when
   the button is pressed. `area` is the current route path.
-- `labels?: Partial<BugReportLabels>`: overrides of the English
-  `defaultLabels`. `filed` is the success sentence; `{number}` in it becomes
-  the request's number.
+- `labels?: BugReportLabelOverrides`: overrides of the English
+  `defaultLabels`; `bug` and `feature` merge key by key. `filed` is the success
+  sentence; `{number}` in it becomes the request's number.
 - `diagnostics?: () => unknown`: extra context, sent inside the
   `diagnostics` JSON.
 - `allowedImageOrigins?: string[]`: image origins besides the page's own that
@@ -159,8 +160,9 @@ export function BugButton() {
 
 The package exports `BugReportButton`, `BugReportDialog`, `defaultLabels`,
 `buildBugReportForm` (the form the dialog sends) and the types
-`BugReportButtonProps`, `BugReportLabels`, `BugReportContext`,
-`BugReportResult` and `BugReportSubmit`.
+`BugReportButtonProps`, `BugReportLabels`, `BugReportKindLabels`,
+`BugReportLabelOverrides`, `BugReportContext`, `BugReportResult` and
+`BugReportSubmit`.
 
 ## The intake route
 
@@ -176,6 +178,8 @@ own sink.
 
 | part | required | cap |
 |---|---|---|
+| `kind` | no | `bug` or `feature`; absent or empty is `bug` |
+| `summary` | no | 200, one line |
 | `description` | yes | 5000 |
 | `impact` | yes | `blocks`, `workaround` or `cosmetic` |
 | `area` | yes | 512, starts with `/` |
@@ -201,7 +205,9 @@ Responses, in the order the route checks them:
 | 201 | `{"id": "<task uuid>", "number": <task number>}` |
 
 The report becomes an internal `bug` request in the project's triage column,
-titled `[<key name>] <first line of the description>`, with the screenshot as
+titled with the reporter's summary as sent. Without a summary, the title is
+`[<key name>] <first line of the description>`, cut to 80 characters. The
+description starts with `App: <key name>`, and the screenshot is attached as
 a private task file. The project's clients never see it unless staff make the
 task public. Nothing about the request's outcome goes back to the app.
 

@@ -3,37 +3,28 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ScreenshotPane } from "./ScreenshotPane.js";
 import { styles } from "./styles.js";
-import { BUG_IMPACTS, buildBugReportForm, reportAsText, } from "./payload.js";
+import { BUG_KINDS, SUMMARY_LIMIT, buildBugReportForm, reportAsText, } from "./payload.js";
 import { formatFiled } from "./labels.js";
-const IMPACT_LABEL = {
-    blocks: "impactBlocks",
-    workaround: "impactWorkaround",
-    cosmetic: "impactCosmetic",
-};
-/** The backend refuses a longer description with a 422, so the field stops first. */
-const DESCRIPTION_LIMIT = 5_000;
-/**
- * The backend refuses a larger screenshot with a 413. Past the cap the image is
- * dropped rather than the report: the words and the diagnostics are what make a
- * report actionable, and a refusal would cost all three.
- */
+import { DESCRIPTION_LIMIT, clearDraft, readDraft, writeDraft } from "./draft.js";
+// WHY: the backend refuses a larger screenshot with a 413; past the cap the image is dropped, never the report.
 const SCREENSHOT_LIMIT_BYTES = 5 * 1024 * 1024;
 const COPIED_RESET_MS = 4_000;
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 const TITLE_ID = "bug-report-title";
+const KIND_ID = "bug-report-kind-label";
+const SUMMARY_ID = "bug-report-summary";
+const SUMMARY_ERROR_ID = "bug-report-summary-error";
 const DESCRIPTION_ID = "bug-report-description";
 const ERROR_ID = "bug-report-description-error";
 const COUNTER_ID = "bug-report-description-count";
-/**
- * Defer to whoever locked the body first, and hand back the undo.
- *
- * A counter of our own cannot work here: the folder must not import the app's
- * Modal, so the two counters would be independent, and both restore the same
- * `document.body.style.overflow`. Whichever unlocks last wins — and when that is
- * this dialog it writes back the "hidden" it captured while the modal held the
- * lock, leaving the panel unscrollable until a reload. Doing nothing when the
- * body is already hidden leaves exactly one owner of the property.
- */
+const IMPACT_ID = "bug-report-impact-label";
+const TECHNICAL_ID = "bug-report-technical";
+const TECHNICAL_HINT_ID = "bug-report-technical-hint";
+const SHARED_ID = "bug-report-shared";
+const SHARED_HINT_ID = "bug-report-shared-hint";
+const DISCARD_TITLE_ID = "bug-report-discard-title";
+const DISCARD_BODY_ID = "bug-report-discard-body";
+// WHY: the Modal restores the same body overflow; a second counter would write back a stale "hidden".
 function lockBodyScroll() {
     if (document.body.style.overflow === "hidden")
         return () => { };
@@ -45,18 +36,39 @@ function lockBodyScroll() {
 }
 export function BugReportDialog(props) {
     const { capture, labels, context, environment, diagnostics, submit, onClose } = props;
+    const [restored] = useState(readDraft);
+    const [kind, setKind] = useState(restored?.kind ?? "bug");
+    const [summary, setSummary] = useState(restored?.summary ?? "");
+    const [description, setDescription] = useState(restored?.description ?? "");
+    const [impact, setImpact] = useState(restored?.impact ?? "workaround");
+    const [draftSaved, setDraftSaved] = useState(restored !== null);
     const [dataUrl, setDataUrl] = useState(capture.ok ? capture.dataUrl : null);
-    const [description, setDescription] = useState("");
-    const [impact, setImpact] = useState("workaround");
-    const [invalid, setInvalid] = useState(false);
+    const [summaryInvalid, setSummaryInvalid] = useState(false);
+    const [descriptionInvalid, setDescriptionInvalid] = useState(false);
     const [oversize, setOversize] = useState(false);
     const [copyState, setCopyState] = useState("idle");
     const [phase, setPhase] = useState({ name: "editing" });
+    const [expanded, setExpanded] = useState(false);
+    const [technicalOpen, setTechnicalOpen] = useState(false);
+    const [sharedOpen, setSharedOpen] = useState(false);
+    const [confirming, setConfirming] = useState(false);
+    const [markedUp, setMarkedUp] = useState(false);
     const paneRef = useRef(null);
     const panelRef = useRef(null);
+    const summaryRef = useRef(null);
     const descriptionRef = useRef(null);
     const successRef = useRef(null);
     const manualRef = useRef(null);
+    const keepEditingRef = useRef(null);
+    const k = labels[kind];
+    const sending = phase.name === "sending";
+    const sent = phase.name === "sent";
+    const hasWork = !sent && (summary !== "" || description !== "" || markedUp);
+    const impactOptions = [
+        { value: "blocks", label: k.impactBlocks, hint: k.impactBlocksHint },
+        { value: "workaround", label: k.impactWorkaround, hint: k.impactWorkaroundHint },
+        { value: "cosmetic", label: k.impactCosmetic, hint: k.impactCosmeticHint },
+    ];
     useEffect(() => {
         const trapTab = (event) => {
             const panel = panelRef.current;
@@ -80,50 +92,54 @@ export function BugReportDialog(props) {
         };
         const onKey = (event) => {
             if (event.key === "Escape") {
-                // While this dialog is open the key is ours, whatever we do with it. The
-                // app's Modal listens for Escape on `window` too and this dialog opens on
-                // top of one, so without stopping it here a single press closes both and
-                // takes the form the reporter was filling in with it.
+                // WHY: the app's Modal also listens for Escape on window; without stopping it here one press closes both.
                 event.stopImmediatePropagation();
-                // Not while sending: the request is already on its way, and closing here
-                // would lose the reporter's words with no way to tell them whether it
-                // landed.
-                if (phase.name !== "sending")
+                // WHY: while sending, Escape must not close: the reporter could not tell whether their words landed.
+                if (sending)
+                    return;
+                // WHY: a text box open on the screenshot takes Escape first, so it ends the edit, not the report.
+                if (paneRef.current?.cancelText())
+                    return;
+                if (confirming) {
+                    setConfirming(false);
+                    return;
+                }
+                if (hasWork)
+                    setConfirming(true);
+                else
                     onClose();
                 return;
             }
             if (event.key === "Tab")
                 trapTab(event);
-            // The page's search shortcut, also on `window`. Letting it through moves
-            // focus to a box hidden under this overlay: the reporter types into what
-            // they cannot see, Enter navigates the page underneath, and the Escape
-            // they reach for next closes the report.
+            // WHY: the page's search shortcut is also on window; letting it through focuses a box hidden under this overlay.
             if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
                 event.stopImmediatePropagation();
                 event.preventDefault();
             }
         };
-        // Capture phase, so this runs before any listener the page registered on
-        // `window` in the usual way — stopping propagation from the bubble phase
-        // would be too late to keep the modal underneath from seeing the key.
+        // WHY: capture phase, so it runs before the page's window listeners; bubble-phase stopping comes too late.
         window.addEventListener("keydown", onKey, { capture: true });
         return () => window.removeEventListener("keydown", onKey, { capture: true });
-    }, [onClose, phase.name]);
+    }, [onClose, sending, confirming, hasWork]);
     useEffect(() => {
         const restoreTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
         const unlockBodyScroll = lockBodyScroll();
-        // The dialog is a portal at the end of <body>, so without this the caret
-        // stays behind on the page the reporter just photographed.
-        descriptionRef.current?.focus();
+        // WHY: the dialog is a portal at the end of body; without this the caret stays on the photographed page.
+        summaryRef.current?.focus();
         return () => {
             unlockBodyScroll();
             restoreTo?.focus();
         };
     }, []);
     useEffect(() => {
-        if (phase.name === "sent")
+        if (sent)
             successRef.current?.focus();
-    }, [phase.name]);
+    }, [sent]);
+    useEffect(() => {
+        if (confirming)
+            keepEditingRef.current?.focus();
+    }, [confirming]);
     useEffect(() => {
         if (copyState !== "copied")
             return;
@@ -136,25 +152,70 @@ export function BugReportDialog(props) {
         manualRef.current?.focus();
         manualRef.current?.select();
     }, [copyState]);
-    const sending = phase.name === "sending";
-    async function send() {
-        // aria-disabled leaves the button clickable, so the guard the attribute only
-        // advertises has to live here.
+    // WHY: storage that refuses the write must not claim a save; the indicator reports
+    // only what the browser confirmed.
+    function persist(next) {
+        if (next.summary.trim() === "" && next.description.trim() === "") {
+            clearDraft();
+            setDraftSaved(false);
+        }
+        else {
+            setDraftSaved(writeDraft(next));
+        }
+    }
+    function changeKind(value) {
+        setKind(value);
+        persist({ kind: value, summary, description, impact });
+    }
+    function changeSummary(value) {
+        setSummary(value);
+        if (summaryInvalid)
+            setSummaryInvalid(false);
+        persist({ kind, summary: value, description, impact });
+    }
+    function changeDescription(value) {
+        setDescription(value);
+        if (descriptionInvalid)
+            setDescriptionInvalid(false);
+        persist({ kind, summary, description: value, impact });
+    }
+    function changeImpact(value) {
+        setImpact(value);
+        persist({ kind, summary, description, impact: value });
+    }
+    function requestClose() {
         if (sending)
             return;
-        if (description.trim() === "") {
-            setInvalid(true);
+        if (hasWork)
+            setConfirming(true);
+        else
+            onClose();
+    }
+    function discard() {
+        clearDraft();
+        onClose();
+    }
+    async function send() {
+        // WHY: aria-disabled leaves the button clickable, so the guard has to live in the handler.
+        if (sending)
+            return;
+        const missingSummary = summary.trim() === "";
+        const missingDescription = description.trim() === "";
+        setSummaryInvalid(missingSummary);
+        setDescriptionInvalid(!missingSummary && missingDescription);
+        if (missingSummary) {
+            summaryRef.current?.focus();
+            return;
+        }
+        if (missingDescription) {
             descriptionRef.current?.focus();
             return;
         }
-        setInvalid(false);
         setPhase({ name: "sending" });
-        // Text-only until the export says otherwise, and declared out here so the
-        // failure phase can hand the reporter their words back however far the
-        // attempt got. The export itself is awaited INSIDE the try: a handle that
-        // rejects rather than resolving null would otherwise leave the dialog stuck
-        // on "sending", with Escape and Cancel both refusing to close it.
+        // WHY: declared outside the try so failure can return the words; an export that rejects must not strand "sending".
         let payload = {
+            kind,
+            summary: summary.trim(),
             description: description.trim(),
             impact,
             context,
@@ -168,13 +229,12 @@ export function BugReportDialog(props) {
             setOversize(tooLarge);
             payload = { ...payload, screenshot: tooLarge ? null : screenshot };
             const result = await submit(buildBugReportForm(payload));
+            clearDraft();
+            setDraftSaved(false);
             setPhase({ name: "sent", number: result.number });
         }
         catch (error) {
-            // The reporter's words must survive a network blip; the failure state
-            // hands them back rather than asking them to type it all again. The
-            // server's own sentence goes with them — "not configured" and "try again
-            // in 40 seconds" are different problems and only one is worth retrying.
+            // WHY: keep the server's sentence too; "not configured" and "try again" need different actions.
             setPhase({
                 name: "failed",
                 payload,
@@ -185,9 +245,6 @@ export function BugReportDialog(props) {
     async function copyReport(payload) {
         const text = reportAsText(payload);
         try {
-            // Absent outside a secure context, and a present one still rejects when
-            // the document is not focused or permission is refused. Both end in the
-            // same place: the text on screen, selected, for a manual Ctrl+C.
             if (!window.navigator.clipboard) {
                 throw new Error("clipboard unavailable");
             }
@@ -198,10 +255,7 @@ export function BugReportDialog(props) {
             setCopyState("manual");
         }
     }
-    // Everything the submission carries, so nobody sends what they have not seen.
-    // The request id is the host's own reference and is shown only when the host
-    // gives one. The reporter's identity is not listed: the server adds it from
-    // its own session, so nothing here can name the reporter wrongly.
+    // WHY: the reporter's identity is left out; the server adds it from its own session.
     const contextRows = [
         [labels.contextRoute, context.area],
         [labels.contextVersion, context.version],
@@ -212,13 +266,13 @@ export function BugReportDialog(props) {
         [labels.contextViewport, environment.viewport],
         [labels.contextTimestamp, environment.at],
     ];
-    const describedBy = invalid ? `${ERROR_ID} ${COUNTER_ID}` : COUNTER_ID;
-    return createPortal(_jsx("div", { style: styles.overlay, role: "dialog", "aria-modal": "true", "aria-labelledby": TITLE_ID, children: _jsxs("div", { ref: panelRef, style: styles.panel, children: [_jsx("h2", { id: TITLE_ID, style: styles.title, children: labels.dialogTitle }), phase.name === "sent" ? (_jsxs("div", { style: styles.phaseRegion, children: [_jsxs("div", { role: "status", children: [_jsx("p", { ref: successRef, tabIndex: -1, children: labels.successTitle }), _jsx("p", { children: formatFiled(labels.filed, phase.number) }), oversize ? _jsx("p", { style: styles.muted, children: labels.screenshotTooLarge }) : null] }), _jsx("div", { style: styles.actions, children: _jsx("button", { type: "button", style: styles.primaryButton, onClick: onClose, children: labels.close }) })] })) : (_jsxs(_Fragment, { children: [_jsxs("div", { style: styles.columns, children: [_jsx("div", { style: styles.imageColumn, children: _jsx(ScreenshotPane, { ref: paneRef, dataUrl: dataUrl, labels: labels, onImageChosen: setDataUrl }) }), _jsxs("div", { style: styles.formColumn, children: [_jsxs("div", { children: [_jsx("label", { htmlFor: DESCRIPTION_ID, style: styles.label, children: labels.descriptionLabel }), _jsx("textarea", { id: DESCRIPTION_ID, ref: descriptionRef, style: styles.textarea, placeholder: labels.descriptionPlaceholder, maxLength: DESCRIPTION_LIMIT, required: true, "aria-invalid": invalid, "aria-describedby": describedBy, value: description, onChange: (event) => {
-                                                        setDescription(event.target.value);
-                                                        if (invalid)
-                                                            setInvalid(false);
-                                                    } }), _jsx("p", { id: COUNTER_ID, style: styles.counter, children: labels.characterCount(description.length, DESCRIPTION_LIMIT) }), invalid ? (_jsx("p", { id: ERROR_ID, role: "alert", style: styles.error, children: labels.descriptionRequired })) : null] }), _jsxs("fieldset", { style: { border: "none", margin: 0, padding: 0 }, children: [_jsx("legend", { style: styles.label, children: labels.impactLabel }), BUG_IMPACTS.map((value) => (_jsxs("label", { style: styles.radioRow, htmlFor: `bug-report-impact-${value}`, children: [_jsx("input", { id: `bug-report-impact-${value}`, type: "radio", name: "bug-report-impact", checked: impact === value, onChange: () => setImpact(value) }), labels[IMPACT_LABEL[value]]] }, value)))] }), _jsxs("div", { children: [_jsx("p", { style: styles.label, children: labels.contextTitle }), _jsx("table", { style: styles.contextTable, children: _jsx("tbody", { children: contextRows.map(([key, value]) => (_jsxs("tr", { children: [_jsx("th", { scope: "row", style: styles.contextKey, children: key }), _jsx("td", { style: styles.contextValue, children: value })] }, key))) }) })] })] })] }), _jsxs("div", { style: styles.phaseRegion, children: [_jsxs("div", { role: "status", children: [phase.name === "sending" ? _jsx("p", { style: styles.muted, children: labels.sending }) : null, phase.name === "failed" ? (_jsxs(_Fragment, { children: [_jsx("p", { style: styles.error, children: labels.failureTitle }), phase.detail ? _jsx("p", { style: styles.muted, children: phase.detail }) : null, oversize ? _jsx("p", { style: styles.muted, children: labels.screenshotTooLarge }) : null] })) : null] }), phase.name === "failed" ? (_jsxs(_Fragment, { children: [_jsx("button", { type: "button", style: styles.secondaryButton, onClick: () => copyReport(phase.payload), children: copyState === "copied" ? labels.copied : labels.copyToClipboard }), copyState === "manual" ? (_jsxs(_Fragment, { children: [_jsx("p", { style: styles.muted, children: labels.copyManually }), _jsx("textarea", { ref: manualRef, readOnly: true, style: styles.textarea, "aria-label": labels.copyToClipboard, value: reportAsText(phase.payload) })] })) : null] })) : null] }), _jsxs("div", { style: styles.actions, children: [_jsx("button", { type: "button", style: sending ? { ...styles.secondaryButton, ...styles.buttonBusy } : styles.secondaryButton, onClick: () => {
-                                        if (!sending)
-                                            onClose();
-                                    }, "aria-disabled": sending, children: labels.cancel }), _jsx("button", { type: "button", style: sending ? { ...styles.primaryButton, ...styles.buttonBusy } : styles.primaryButton, onClick: send, "aria-disabled": sending, children: sending ? labels.sending : labels.send })] })] }))] }) }), document.body);
+    const descriptionDescribedBy = descriptionInvalid ? `${ERROR_ID} ${COUNTER_ID}` : COUNTER_ID;
+    return createPortal(_jsx("div", { style: styles.overlay, role: "dialog", "aria-modal": "true", "aria-labelledby": TITLE_ID, children: _jsxs("div", { ref: panelRef, style: styles.editor, children: [_jsxs("header", { style: styles.header, children: [_jsx("button", { type: "button", "aria-label": labels.back, style: styles.iconButton, onClick: requestClose, "aria-disabled": sending, children: "\u2190" }), _jsxs("div", { style: styles.headerText, children: [_jsx("h2", { id: TITLE_ID, style: styles.title, children: k.title }), _jsx("p", { style: styles.muted, children: k.subtitle })] }), _jsxs("div", { style: styles.headerEnd, children: [draftSaved && !sent ? (_jsxs("p", { style: styles.muted, children: [_jsx("span", { "aria-hidden": "true", children: "\u2713 " }), _jsx("span", { children: labels.saved })] })) : null, sent ? null : (_jsx("button", { type: "button", style: sending ? { ...styles.primaryButton, ...styles.buttonBusy } : styles.primaryButton, onClick: send, "aria-disabled": sending, children: sending ? labels.sending : k.send }))] })] }), sent ? (_jsxs("div", { style: styles.phaseRegion, children: [_jsxs("div", { role: "status", children: [_jsx("p", { ref: successRef, tabIndex: -1, children: labels.successTitle }), _jsx("p", { children: formatFiled(labels.filed, phase.number) }), oversize ? _jsx("p", { style: styles.muted, children: labels.screenshotTooLarge }) : null] }), _jsx("div", { style: styles.actions, children: _jsx("button", { type: "button", style: styles.primaryButton, onClick: onClose, children: labels.close }) })] })) : (_jsxs("div", { style: styles.body, children: [_jsx("div", { style: styles.imageColumn, children: _jsx(ScreenshotPane, { ref: paneRef, dataUrl: dataUrl, labels: labels, onImageChosen: setDataUrl, expanded: expanded, onToggleExpanded: () => setExpanded(!expanded), onMarkupChange: setMarkedUp }) }), expanded ? null : (_jsxs("div", { style: styles.formColumn, children: [_jsxs("div", { role: "radiogroup", "aria-labelledby": KIND_ID, style: styles.section, children: [_jsx("p", { id: KIND_ID, style: styles.label, children: labels.kindLabel }), BUG_KINDS.map((value) => {
+                                            const id = `bug-report-kind-${value}`;
+                                            return (_jsxs("label", { style: styles.radioRow, htmlFor: id, children: [_jsx("input", { id: id, type: "radio", name: "bug-report-kind", value: value, checked: kind === value, onChange: () => changeKind(value) }), value === "bug" ? labels.kindBug : labels.kindFeature] }, value));
+                                        })] }), _jsxs("div", { style: styles.section, children: [_jsx("label", { htmlFor: SUMMARY_ID, style: styles.label, children: labels.summaryLabel }), _jsx("input", { id: SUMMARY_ID, ref: summaryRef, type: "text", style: styles.input, placeholder: labels.summaryPlaceholder, maxLength: SUMMARY_LIMIT, "aria-required": "true", "aria-invalid": summaryInvalid, "aria-describedby": summaryInvalid ? SUMMARY_ERROR_ID : undefined, value: summary, onChange: (event) => changeSummary(event.target.value) }), summaryInvalid ? (_jsx("p", { id: SUMMARY_ERROR_ID, role: "alert", style: styles.error, children: labels.summaryRequired })) : null] }), _jsxs("div", { style: styles.section, children: [_jsx("label", { htmlFor: DESCRIPTION_ID, style: styles.label, children: k.descriptionLabel }), _jsx("textarea", { id: DESCRIPTION_ID, ref: descriptionRef, style: styles.textarea, placeholder: k.descriptionPlaceholder, maxLength: DESCRIPTION_LIMIT, required: true, "aria-invalid": descriptionInvalid, "aria-describedby": descriptionDescribedBy, value: description, onChange: (event) => changeDescription(event.target.value) }), _jsx("p", { id: COUNTER_ID, style: styles.counter, children: labels.characterCount(description.length, DESCRIPTION_LIMIT) }), descriptionInvalid ? (_jsx("p", { id: ERROR_ID, role: "alert", style: styles.error, children: k.descriptionRequired })) : null] }), _jsxs("div", { role: "radiogroup", "aria-labelledby": IMPACT_ID, style: styles.section, children: [_jsx("p", { id: IMPACT_ID, style: styles.label, children: k.impactLabel }), impactOptions.map(({ value, label, hint }) => {
+                                            const id = `bug-report-impact-${value}`;
+                                            const hintId = `${id}-hint`;
+                                            return (_jsxs("div", { children: [_jsxs("label", { style: styles.radioRow, htmlFor: id, children: [_jsx("input", { id: id, type: "radio", name: "bug-report-impact", checked: impact === value, "aria-describedby": hintId, onChange: () => changeImpact(value) }), label] }), _jsx("p", { id: hintId, style: styles.muted, children: hint })] }, value));
+                                        })] }), _jsxs("div", { style: styles.section, children: [_jsx("button", { type: "button", style: styles.disclosure, "aria-expanded": technicalOpen, "aria-controls": TECHNICAL_ID, "aria-describedby": TECHNICAL_HINT_ID, onClick: () => setTechnicalOpen(!technicalOpen), children: labels.technicalTitle }), _jsx("p", { id: TECHNICAL_HINT_ID, style: styles.muted, children: labels.technicalHint }), _jsx("div", { id: TECHNICAL_ID, children: technicalOpen ? (_jsx("table", { style: styles.contextTable, children: _jsx("tbody", { children: contextRows.map(([key, value]) => (_jsxs("tr", { children: [_jsx("th", { scope: "row", style: styles.contextKey, children: key }), _jsx("td", { style: styles.contextValue, children: value })] }, key))) }) })) : null })] }), _jsxs("div", { style: styles.section, children: [_jsx("button", { type: "button", style: styles.disclosure, "aria-expanded": sharedOpen, "aria-controls": SHARED_ID, "aria-describedby": SHARED_HINT_ID, onClick: () => setSharedOpen(!sharedOpen), children: labels.sharedTitle }), _jsx("p", { id: SHARED_HINT_ID, style: styles.muted, children: labels.sharedHint }), _jsx("div", { id: SHARED_ID, children: sharedOpen ? _jsx("p", { style: styles.muted, children: labels.sharedBody }) : null })] }), _jsxs("div", { role: "note", style: styles.note, children: [_jsx("p", { style: styles.label, children: labels.sensitiveTitle }), _jsx("p", { style: styles.muted, children: labels.sensitiveBody })] }), _jsxs("div", { style: styles.phaseRegion, children: [_jsxs("div", { role: "status", children: [phase.name === "sending" ? (_jsx("p", { style: styles.muted, children: labels.sending })) : null, phase.name === "failed" ? (_jsxs(_Fragment, { children: [_jsx("p", { style: styles.error, children: labels.failureTitle }), phase.detail ? _jsx("p", { style: styles.muted, children: phase.detail }) : null, oversize ? _jsx("p", { style: styles.muted, children: labels.screenshotTooLarge }) : null] })) : null] }), phase.name === "failed" ? (_jsxs(_Fragment, { children: [_jsx("button", { type: "button", style: styles.secondaryButton, onClick: () => copyReport(phase.payload), children: copyState === "copied" ? labels.copied : labels.copyToClipboard }), copyState === "manual" ? (_jsxs(_Fragment, { children: [_jsx("p", { style: styles.muted, children: labels.copyManually }), _jsx("textarea", { ref: manualRef, readOnly: true, style: styles.textarea, "aria-label": labels.copyToClipboard, value: reportAsText(phase.payload) })] })) : null] })) : null] })] }))] })), confirming ? (_jsxs("div", { role: "alertdialog", "aria-labelledby": DISCARD_TITLE_ID, "aria-describedby": DISCARD_BODY_ID, style: styles.confirm, children: [_jsx("h3", { id: DISCARD_TITLE_ID, style: styles.title, children: labels.discardTitle }), _jsx("p", { id: DISCARD_BODY_ID, style: styles.muted, children: labels.discardBody }), _jsxs("div", { style: styles.actions, children: [_jsx("button", { type: "button", ref: keepEditingRef, style: styles.primaryButton, onClick: () => setConfirming(false), children: labels.keepEditing }), _jsx("button", { type: "button", style: styles.secondaryButton, onClick: discard, children: labels.discard })] })] })) : null] }) }), document.body);
 }

@@ -1,10 +1,10 @@
 import { type ReactNode } from "react";
 import { type BugReportContext, type BugReportSubmit } from "./payload.js";
-import { type BugReportLabels } from "./labels.js";
+import { type BugReportLabelOverrides } from "./labels.js";
 export type BugReportButtonProps = {
     submit: BugReportSubmit;
     getContext: () => BugReportContext;
-    labels?: Partial<BugReportLabels>;
+    labels?: BugReportLabelOverrides;
     diagnostics?: () => unknown;
     /** See capture.ts — which image origins are worth trying to inline. */
     allowedImageOrigins?: string[];
