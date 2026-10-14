@@ -1,7 +1,7 @@
 import { jsx as _jsx, Fragment as _Fragment, jsxs as _jsxs } from "react/jsx-runtime";
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, } from "react";
 import { beginShape, cropOf, extendShape, push, redo as redoHistory, undo as undoHistory, } from "./shapes.js";
-import { styles } from "./styles.js";
+import { partProps } from "./theme.js";
 /** What the backend accepts, so a doomed upload is refused before Send. */
 export const UPLOAD_MIME = "image/png";
 export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
@@ -150,10 +150,7 @@ function pointFrom(event, crop) {
         y: ((event.clientY - box.top - canvas.clientTop) / canvas.clientHeight) * crop.height + crop.y,
     };
 }
-function toolStyle(active) {
-    return active ? { ...styles.tool, ...styles.toolActive } : styles.tool;
-}
-export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange }, ref) {
+export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange, classNames }, ref) {
     const canvasRef = useRef(null);
     const inputRef = useRef(null);
     const imageRef = useRef(null);
@@ -344,8 +341,8 @@ export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labe
     }
     const upload = (_jsx("input", { ref: inputRef, type: "file", accept: UPLOAD_MIME, "aria-label": labels.uploadLabel, hidden: dataUrl !== null, onChange: (event) => readFile(event.target.files?.[0]) }));
     // WHY: render the error in both states; a pasted file over a capture is otherwise dropped silently.
-    const rejection = rejected ? (_jsx("p", { role: "alert", style: styles.error, children: labels.uploadRejected })) : null;
-    const toolbar = (_jsxs("div", { role: "toolbar", "aria-label": labels.toolbarLabel, style: styles.toolbar, children: [dataUrl ? (_jsxs(_Fragment, { children: [DRAW_TOOLS.map((value) => (_jsx("button", { type: "button", "aria-pressed": tool === value, style: toolStyle(tool === value), onClick: () => {
+    const rejection = rejected ? (_jsx("p", { role: "alert", ...partProps(classNames, "error"), children: labels.uploadRejected })) : null;
+    const toolbar = (_jsxs("div", { role: "toolbar", "aria-label": labels.toolbarLabel, ...partProps(classNames, "toolbar"), children: [dataUrl ? (_jsxs(_Fragment, { children: [DRAW_TOOLS.map((value) => (_jsx("button", { type: "button", "aria-pressed": tool === value, ...partProps(classNames, "tool"), onClick: () => {
                             commitText();
                             setTool(value);
                         }, children: value === "arrow"
@@ -356,15 +353,14 @@ export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labe
                                     ? labels.toolFreehand
                                     : value === "text"
                                         ? labels.toolText
-                                        : labels.toolRedact }, value))), _jsx("button", { type: "button", style: styles.tool, disabled: history.done.length === 0, onClick: () => setHistory(undoHistory(historyRef.current)), children: labels.undo }), _jsx("button", { type: "button", style: styles.tool, disabled: history.undone.length === 0, onClick: () => setHistory(redoHistory(historyRef.current)), children: labels.redo }), _jsx("button", { type: "button", style: styles.tool, disabled: percent <= ZOOM_STEPS[0], onClick: () => zoomBy(-1), children: labels.zoomOut }), _jsx("output", { style: styles.zoomLevel, children: labels.zoomLevel(percent) }), _jsx("button", { type: "button", style: styles.tool, disabled: percent >= ZOOM_STEPS[ZOOM_STEPS.length - 1], onClick: () => zoomBy(1), children: labels.zoomIn }), _jsx("button", { type: "button", style: styles.tool, onClick: () => setZoom(null), children: labels.fit }), _jsx("button", { type: "button", "aria-pressed": tool === "crop", style: toolStyle(tool === "crop"), onClick: () => {
+                                        : labels.toolRedact }, value))), _jsx("button", { type: "button", ...partProps(classNames, "tool"), disabled: history.done.length === 0, onClick: () => setHistory(undoHistory(historyRef.current)), children: labels.undo }), _jsx("button", { type: "button", ...partProps(classNames, "tool"), disabled: history.undone.length === 0, onClick: () => setHistory(redoHistory(historyRef.current)), children: labels.redo }), _jsx("button", { type: "button", ...partProps(classNames, "tool"), disabled: percent <= ZOOM_STEPS[0], onClick: () => zoomBy(-1), children: labels.zoomOut }), _jsx("output", { ...partProps(classNames, "zoom-level"), children: labels.zoomLevel(percent) }), _jsx("button", { type: "button", ...partProps(classNames, "tool"), disabled: percent >= ZOOM_STEPS[ZOOM_STEPS.length - 1], onClick: () => zoomBy(1), children: labels.zoomIn }), _jsx("button", { type: "button", ...partProps(classNames, "tool"), onClick: () => setZoom(null), children: labels.fit }), _jsx("button", { type: "button", "aria-pressed": tool === "crop", ...partProps(classNames, "tool"), onClick: () => {
                             commitText();
                             setTool("crop");
-                        }, children: labels.crop })] })) : null, _jsx("button", { type: "button", style: styles.tool, onClick: () => inputRef.current?.click(), children: labels.replace }), _jsx("button", { type: "button", "aria-pressed": expanded, style: toolStyle(expanded), onClick: onToggleExpanded, children: expanded ? labels.exitFullscreen : labels.enterFullscreen })] }));
+                        }, children: labels.crop })] })) : null, _jsx("button", { type: "button", ...partProps(classNames, "tool"), onClick: () => inputRef.current?.click(), children: labels.replace }), _jsx("button", { type: "button", "aria-pressed": expanded, ...partProps(classNames, "tool"), onClick: onToggleExpanded, children: expanded ? labels.exitFullscreen : labels.enterFullscreen })] }));
     if (!dataUrl) {
-        return (_jsxs("div", { children: [toolbar, _jsxs("div", { style: styles.placeholder, children: [_jsx("span", { children: labels.captureFailed }), _jsx("span", { children: labels.captureFallbackHint }), upload, rejection] })] }));
+        return (_jsxs("div", { children: [toolbar, _jsxs("div", { ...partProps(classNames, "placeholder"), children: [_jsx("span", { children: labels.captureFailed }), _jsx("span", { children: labels.captureFallbackHint }), upload, rejection] })] }));
     }
-    return (_jsxs("div", { children: [toolbar, _jsx("div", { style: styles.canvasScroll, children: _jsxs("div", { style: styles.canvasStage, children: [_jsx("canvas", { ref: canvasRef, role: "img", "aria-label": labels.screenshotTitle, style: {
-                                ...styles.image,
+    return (_jsxs("div", { children: [toolbar, _jsx("div", { ...partProps(classNames, "canvas-scroll"), children: _jsxs("div", { ...partProps(classNames, "canvas-stage"), style: { position: "relative" }, children: [_jsx("canvas", { ref: canvasRef, role: "img", "aria-label": labels.screenshotTitle, ...partProps(classNames, "canvas"), style: {
                                 touchAction: "none",
                                 cursor: tool === "text" ? "text" : "crosshair",
                                 ...(crop && zoom !== null ? { width: `${Math.round((crop.width * zoom) / 100)}px` } : {}),
@@ -413,8 +409,8 @@ export const ScreenshotPane = forwardRef(function ScreenshotPane({ dataUrl, labe
                                     return;
                                 event.preventDefault();
                                 commitText();
-                            }, onBlur: () => commitText(text.id), style: {
-                                ...styles.textInput,
+                            }, onBlur: () => commitText(text.id), ...partProps(classNames, "text-input"), style: {
+                                position: "absolute",
                                 left: (text.at.x - crop.x) * scale,
                                 top: (text.at.y - crop.y) * scale,
                             } }, text.id)) : null] }) }), rejection, upload] }));

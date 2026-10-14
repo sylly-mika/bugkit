@@ -1,4 +1,5 @@
 import { type Rect, type Shape } from "./shapes.js";
+import { type BugReportClassNames } from "./theme.js";
 import type { BugReportLabels } from "./labels.js";
 export type ScreenshotPaneHandle = {
     toBlob(): Promise<Blob | null>;
@@ -14,6 +15,7 @@ export type ScreenshotPaneProps = {
     expanded: boolean;
     onToggleExpanded: () => void;
     onMarkupChange?: (marked: boolean) => void;
+    classNames?: BugReportClassNames;
 };
 /**
  * Null on every failure, and it has to be a `.catch` rather than a try/catch

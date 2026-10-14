@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ScreenshotPane, type ScreenshotPaneHandle } from "./ScreenshotPane.js";
-import { styles } from "./styles.js";
+import { partProps, useBugkitStyles, type BugReportClassNames } from "./theme.js";
 import {
   BUG_KINDS,
   SUMMARY_LIMIT,
@@ -27,6 +27,10 @@ export type BugReportDialogProps = {
   diagnostics: unknown;
   submit: BugReportSubmit;
   onClose: () => void;
+  /** Classes per part, added to bugkit's default look; any class beats the default. */
+  classNames?: BugReportClassNames;
+  /** CSP nonce for the one `<style>` element bugkit adds to `<head>`. */
+  nonce?: string;
 };
 
 type Phase =
@@ -72,7 +76,9 @@ function lockBodyScroll(): () => void {
 }
 
 export function BugReportDialog(props: BugReportDialogProps) {
-  const { capture, labels, context, environment, diagnostics, submit, onClose } = props;
+  const { capture, labels, context, environment, diagnostics, submit, onClose, classNames, nonce } =
+    props;
+  useBugkitStyles(nonce);
 
   const [restored] = useState<Draft | null>(readDraft);
   const [kind, setKind] = useState<BugKind>(restored?.kind ?? "bug");
@@ -319,27 +325,27 @@ export function BugReportDialog(props: BugReportDialogProps) {
   const descriptionDescribedBy = descriptionInvalid ? `${ERROR_ID} ${COUNTER_ID}` : COUNTER_ID;
 
   return createPortal(
-    <div style={styles.overlay} role="dialog" aria-modal="true" aria-labelledby={TITLE_ID}>
-      <div ref={panelRef} style={styles.editor}>
-        <header style={styles.header}>
+    <div {...partProps(classNames, "overlay")} role="dialog" aria-modal="true" aria-labelledby={TITLE_ID}>
+      <div ref={panelRef} {...partProps(classNames, "panel")}>
+        <header {...partProps(classNames, "header")}>
           <button
             type="button"
             aria-label={labels.back}
-            style={styles.iconButton}
+            {...partProps(classNames, "back-button")}
             onClick={requestClose}
             aria-disabled={sending}
           >
             ←
           </button>
-          <div style={styles.headerText}>
-            <h2 id={TITLE_ID} style={styles.title}>
+          <div {...partProps(classNames, "header-text")}>
+            <h2 id={TITLE_ID} {...partProps(classNames, "title")}>
               {k.title}
             </h2>
-            <p style={styles.muted}>{k.subtitle}</p>
+            <p {...partProps(classNames, "muted")}>{k.subtitle}</p>
           </div>
-          <div style={styles.headerEnd}>
+          <div {...partProps(classNames, "header-end")}>
             {draftSaved && !sent ? (
-              <p style={styles.muted}>
+              <p {...partProps(classNames, "muted")}>
                 <span aria-hidden="true">✓ </span>
                 <span>{labels.saved}</span>
               </p>
@@ -347,7 +353,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
             {sent ? null : (
               <button
                 type="button"
-                style={sending ? { ...styles.primaryButton, ...styles.buttonBusy } : styles.primaryButton}
+                {...partProps(classNames, "primary-button")}
                 onClick={send}
                 aria-disabled={sending}
               >
@@ -358,24 +364,24 @@ export function BugReportDialog(props: BugReportDialogProps) {
         </header>
 
         {sent ? (
-          <div style={styles.phaseRegion}>
+          <div {...partProps(classNames, "phase")}>
             {/* WHY: the live region is the outcome only; a Close button inside it would be announced too. */}
             <div role="status">
               <p ref={successRef} tabIndex={-1}>
                 {labels.successTitle}
               </p>
               <p>{formatFiled(labels.filed, phase.number)}</p>
-              {oversize ? <p style={styles.muted}>{labels.screenshotTooLarge}</p> : null}
+              {oversize ? <p {...partProps(classNames, "muted")}>{labels.screenshotTooLarge}</p> : null}
             </div>
-            <div style={styles.actions}>
-              <button type="button" style={styles.primaryButton} onClick={onClose}>
+            <div {...partProps(classNames, "actions")}>
+              <button type="button" {...partProps(classNames, "primary-button")} onClick={onClose}>
                 {labels.close}
               </button>
             </div>
           </div>
         ) : (
-          <div style={styles.body}>
-            <div style={styles.imageColumn}>
+          <div {...partProps(classNames, "body")}>
+            <div {...partProps(classNames, "image-column")}>
               <ScreenshotPane
                 ref={paneRef}
                 dataUrl={dataUrl}
@@ -384,19 +390,20 @@ export function BugReportDialog(props: BugReportDialogProps) {
                 expanded={expanded}
                 onToggleExpanded={() => setExpanded(!expanded)}
                 onMarkupChange={setMarkedUp}
+                classNames={classNames}
               />
             </div>
 
             {expanded ? null : (
-              <div style={styles.formColumn}>
-                <div role="radiogroup" aria-labelledby={KIND_ID} style={styles.section}>
-                  <p id={KIND_ID} style={styles.label}>
+              <div {...partProps(classNames, "form")}>
+                <div role="radiogroup" aria-labelledby={KIND_ID} {...partProps(classNames, "kind-choices")}>
+                  <p id={KIND_ID} {...partProps(classNames, "label")}>
                     {labels.kindLabel}
                   </p>
                   {BUG_KINDS.map((value) => {
                     const id = `bug-report-kind-${value}`;
                     return (
-                      <label key={value} style={styles.radioRow} htmlFor={id}>
+                      <label key={value} {...partProps(classNames, "choice")} htmlFor={id}>
                         <input
                           id={id}
                           type="radio"
@@ -411,15 +418,15 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   })}
                 </div>
 
-                <div style={styles.section}>
-                  <label htmlFor={SUMMARY_ID} style={styles.label}>
+                <div {...partProps(classNames, "field")}>
+                  <label htmlFor={SUMMARY_ID} {...partProps(classNames, "label")}>
                     {labels.summaryLabel}
                   </label>
                   <input
                     id={SUMMARY_ID}
                     ref={summaryRef}
                     type="text"
-                    style={styles.input}
+                    {...partProps(classNames, "input")}
                     placeholder={labels.summaryPlaceholder}
                     maxLength={SUMMARY_LIMIT}
                     aria-required="true"
@@ -429,20 +436,20 @@ export function BugReportDialog(props: BugReportDialogProps) {
                     onChange={(event) => changeSummary(event.target.value)}
                   />
                   {summaryInvalid ? (
-                    <p id={SUMMARY_ERROR_ID} role="alert" style={styles.error}>
+                    <p id={SUMMARY_ERROR_ID} role="alert" {...partProps(classNames, "error")}>
                       {labels.summaryRequired}
                     </p>
                   ) : null}
                 </div>
 
-                <div style={styles.section}>
-                  <label htmlFor={DESCRIPTION_ID} style={styles.label}>
+                <div {...partProps(classNames, "field")}>
+                  <label htmlFor={DESCRIPTION_ID} {...partProps(classNames, "label")}>
                     {k.descriptionLabel}
                   </label>
                   <textarea
                     id={DESCRIPTION_ID}
                     ref={descriptionRef}
-                    style={styles.textarea}
+                    {...partProps(classNames, "textarea")}
                     placeholder={k.descriptionPlaceholder}
                     maxLength={DESCRIPTION_LIMIT}
                     required
@@ -451,18 +458,18 @@ export function BugReportDialog(props: BugReportDialogProps) {
                     value={description}
                     onChange={(event) => changeDescription(event.target.value)}
                   />
-                  <p id={COUNTER_ID} style={styles.counter}>
+                  <p id={COUNTER_ID} {...partProps(classNames, "counter")}>
                     {labels.characterCount(description.length, DESCRIPTION_LIMIT)}
                   </p>
                   {descriptionInvalid ? (
-                    <p id={ERROR_ID} role="alert" style={styles.error}>
+                    <p id={ERROR_ID} role="alert" {...partProps(classNames, "error")}>
                       {k.descriptionRequired}
                     </p>
                   ) : null}
                 </div>
 
-                <div role="radiogroup" aria-labelledby={IMPACT_ID} style={styles.section}>
-                  <p id={IMPACT_ID} style={styles.label}>
+                <div role="radiogroup" aria-labelledby={IMPACT_ID} {...partProps(classNames, "impact-choices")}>
+                  <p id={IMPACT_ID} {...partProps(classNames, "label")}>
                     {k.impactLabel}
                   </p>
                   {impactOptions.map(({ value, label, hint }) => {
@@ -470,7 +477,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
                     const hintId = `${id}-hint`;
                     return (
                       <div key={value}>
-                        <label style={styles.radioRow} htmlFor={id}>
+                        <label {...partProps(classNames, "choice")} htmlFor={id}>
                           <input
                             id={id}
                             type="radio"
@@ -481,7 +488,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
                           />
                           {label}
                         </label>
-                        <p id={hintId} style={styles.muted}>
+                        <p id={hintId} {...partProps(classNames, "muted")}>
                           {hint}
                         </p>
                       </div>
@@ -489,10 +496,10 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   })}
                 </div>
 
-                <div style={styles.section}>
+                <div {...partProps(classNames, "field")}>
                   <button
                     type="button"
-                    style={styles.disclosure}
+                    {...partProps(classNames, "disclosure")}
                     aria-expanded={technicalOpen}
                     aria-controls={TECHNICAL_ID}
                     aria-describedby={TECHNICAL_HINT_ID}
@@ -500,19 +507,19 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   >
                     {labels.technicalTitle}
                   </button>
-                  <p id={TECHNICAL_HINT_ID} style={styles.muted}>
+                  <p id={TECHNICAL_HINT_ID} {...partProps(classNames, "muted")}>
                     {labels.technicalHint}
                   </p>
                   <div id={TECHNICAL_ID}>
                     {technicalOpen ? (
-                      <table style={styles.contextTable}>
+                      <table {...partProps(classNames, "context-table")}>
                         <tbody>
                           {contextRows.map(([key, value]) => (
                             <tr key={key}>
-                              <th scope="row" style={styles.contextKey}>
+                              <th scope="row" {...partProps(classNames, "context-key")}>
                                 {key}
                               </th>
-                              <td style={styles.contextValue}>{value}</td>
+                              <td {...partProps(classNames, "context-value")}>{value}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -521,10 +528,10 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   </div>
                 </div>
 
-                <div style={styles.section}>
+                <div {...partProps(classNames, "field")}>
                   <button
                     type="button"
-                    style={styles.disclosure}
+                    {...partProps(classNames, "disclosure")}
                     aria-expanded={sharedOpen}
                     aria-controls={SHARED_ID}
                     aria-describedby={SHARED_HINT_ID}
@@ -532,31 +539,31 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   >
                     {labels.sharedTitle}
                   </button>
-                  <p id={SHARED_HINT_ID} style={styles.muted}>
+                  <p id={SHARED_HINT_ID} {...partProps(classNames, "muted")}>
                     {labels.sharedHint}
                   </p>
                   <div id={SHARED_ID}>
-                    {sharedOpen ? <p style={styles.muted}>{labels.sharedBody}</p> : null}
+                    {sharedOpen ? <p {...partProps(classNames, "muted")}>{labels.sharedBody}</p> : null}
                   </div>
                 </div>
 
-                <div role="note" style={styles.note}>
-                  <p style={styles.label}>{labels.sensitiveTitle}</p>
-                  <p style={styles.muted}>{labels.sensitiveBody}</p>
+                <div role="note" {...partProps(classNames, "note")}>
+                  <p {...partProps(classNames, "label")}>{labels.sensitiveTitle}</p>
+                  <p {...partProps(classNames, "muted")}>{labels.sensitiveBody}</p>
                 </div>
 
-                <div style={styles.phaseRegion}>
+                <div {...partProps(classNames, "phase")}>
                   {/* WHY: the live region holds only the sentence; a copy button in it would read the report aloud. */}
                   <div role="status">
                     {phase.name === "sending" ? (
-                      <p style={styles.muted}>{labels.sending}</p>
+                      <p {...partProps(classNames, "muted")}>{labels.sending}</p>
                     ) : null}
 
                     {phase.name === "failed" ? (
                       <>
-                        <p style={styles.error}>{labels.failureTitle}</p>
-                        {phase.detail ? <p style={styles.muted}>{phase.detail}</p> : null}
-                        {oversize ? <p style={styles.muted}>{labels.screenshotTooLarge}</p> : null}
+                        <p {...partProps(classNames, "error")}>{labels.failureTitle}</p>
+                        {phase.detail ? <p {...partProps(classNames, "muted")}>{phase.detail}</p> : null}
+                        {oversize ? <p {...partProps(classNames, "muted")}>{labels.screenshotTooLarge}</p> : null}
                       </>
                     ) : null}
                   </div>
@@ -565,18 +572,18 @@ export function BugReportDialog(props: BugReportDialogProps) {
                     <>
                       <button
                         type="button"
-                        style={styles.secondaryButton}
+                        {...partProps(classNames, "secondary-button")}
                         onClick={() => copyReport(phase.payload)}
                       >
                         {copyState === "copied" ? labels.copied : labels.copyToClipboard}
                       </button>
                       {copyState === "manual" ? (
                         <>
-                          <p style={styles.muted}>{labels.copyManually}</p>
+                          <p {...partProps(classNames, "muted")}>{labels.copyManually}</p>
                           <textarea
                             ref={manualRef}
                             readOnly
-                            style={styles.textarea}
+                            {...partProps(classNames, "textarea")}
                             aria-label={labels.copyToClipboard}
                             value={reportAsText(phase.payload)}
                           />
@@ -595,24 +602,24 @@ export function BugReportDialog(props: BugReportDialogProps) {
             role="alertdialog"
             aria-labelledby={DISCARD_TITLE_ID}
             aria-describedby={DISCARD_BODY_ID}
-            style={styles.confirm}
+            {...partProps(classNames, "confirm")}
           >
-            <h3 id={DISCARD_TITLE_ID} style={styles.title}>
+            <h3 id={DISCARD_TITLE_ID} {...partProps(classNames, "confirm-title")}>
               {labels.discardTitle}
             </h3>
-            <p id={DISCARD_BODY_ID} style={styles.muted}>
+            <p id={DISCARD_BODY_ID} {...partProps(classNames, "muted")}>
               {labels.discardBody}
             </p>
-            <div style={styles.actions}>
+            <div {...partProps(classNames, "actions")}>
               <button
                 type="button"
                 ref={keepEditingRef}
-                style={styles.primaryButton}
+                {...partProps(classNames, "primary-button")}
                 onClick={() => setConfirming(false)}
               >
                 {labels.keepEditing}
               </button>
-              <button type="button" style={styles.secondaryButton} onClick={discard}>
+              <button type="button" {...partProps(classNames, "secondary-button")} onClick={discard}>
                 {labels.discard}
               </button>
             </div>

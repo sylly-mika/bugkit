@@ -13,7 +13,7 @@ const failures = [];
 const FORBIDDEN_SCRIPTS = ["preinstall", "install", "postinstall", "prepare", "prepack", "postpack"];
 const ALLOWED = /^(package\.json|README\.md|LICENSE|dist\/[A-Za-z0-9_./-]+\.(js|d\.ts))$/;
 const REQUIRED = ["package.json", "README.md", "LICENSE", "dist/index.js", "dist/index.d.ts"];
-const EXPORTS = "BUG_KINDS,BugReportButton,BugReportDialog,SUMMARY_LIMIT,buildBugReportForm,defaultLabels";
+const EXPORTS = "BUG_KINDS,BUG_REPORT_PARTS,BugReportButton,BugReportDialog,SUMMARY_LIMIT,buildBugReportForm,defaultLabels";
 const LINKED = ["react", "react-dom", "html-to-image", "@types/react", "@types/react-dom"];
 
 const PROBE_MJS = `import * as kit from "@sylly-mika/bugkit";

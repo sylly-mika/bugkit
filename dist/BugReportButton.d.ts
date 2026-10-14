@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { type BugReportContext, type BugReportSubmit } from "./payload.js";
 import { type BugReportLabelOverrides } from "./labels.js";
+import { type BugReportClassNames } from "./theme.js";
 export type BugReportButtonProps = {
     submit: BugReportSubmit;
     getContext: () => BugReportContext;
@@ -22,5 +23,9 @@ export type BugReportButtonProps = {
     children?: ReactNode;
     /** The dialog opened (true) or closed (false); a host that must outlive the launcher listens. */
     onOpenChange?: (open: boolean) => void;
+    /** Classes per part, added to bugkit's default look; any class beats the default. */
+    classNames?: BugReportClassNames;
+    /** CSP nonce for the one `<style>` element bugkit adds to `<head>`. */
+    nonce?: string;
 };
 export declare function BugReportButton(props: BugReportButtonProps): import("react").JSX.Element;

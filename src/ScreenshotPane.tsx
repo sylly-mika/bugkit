@@ -5,7 +5,6 @@ import {
   useImperativeHandle,
   useRef,
   useState,
-  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
@@ -23,7 +22,7 @@ import {
   type Step,
   type Tool,
 } from "./shapes.js";
-import { styles } from "./styles.js";
+import { partProps, type BugReportClassNames } from "./theme.js";
 import type { BugReportLabels } from "./labels.js";
 
 export type ScreenshotPaneHandle = {
@@ -42,6 +41,7 @@ export type ScreenshotPaneProps = {
   expanded: boolean;
   onToggleExpanded: () => void;
   onMarkupChange?: (marked: boolean) => void;
+  classNames?: BugReportClassNames;
 };
 
 const STROKE = "#e11d48";
@@ -235,13 +235,9 @@ function pointFrom(event: ReactPointerEvent<HTMLCanvasElement>, crop: Rect): Poi
   };
 }
 
-function toolStyle(active: boolean): CSSProperties {
-  return active ? { ...styles.tool, ...styles.toolActive } : styles.tool;
-}
-
 export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPaneProps>(
   function ScreenshotPane(
-    { dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange },
+    { dataUrl, labels, onImageChosen, expanded, onToggleExpanded, onMarkupChange, classNames },
     ref,
   ) {
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -472,13 +468,13 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
 
     // WHY: render the error in both states; a pasted file over a capture is otherwise dropped silently.
     const rejection = rejected ? (
-      <p role="alert" style={styles.error}>
+      <p role="alert" {...partProps(classNames, "error")}>
         {labels.uploadRejected}
       </p>
     ) : null;
 
     const toolbar = (
-      <div role="toolbar" aria-label={labels.toolbarLabel} style={styles.toolbar}>
+      <div role="toolbar" aria-label={labels.toolbarLabel} {...partProps(classNames, "toolbar")}>
         {dataUrl ? (
           <>
             {DRAW_TOOLS.map((value) => (
@@ -486,7 +482,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
                 key={value}
                 type="button"
                 aria-pressed={tool === value}
-                style={toolStyle(tool === value)}
+                {...partProps(classNames, "tool")}
                 onClick={() => {
                   commitText();
                   setTool(value);
@@ -505,7 +501,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
             ))}
             <button
               type="button"
-              style={styles.tool}
+              {...partProps(classNames, "tool")}
               disabled={history.done.length === 0}
               onClick={() => setHistory(undoHistory(historyRef.current))}
             >
@@ -513,7 +509,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
             </button>
             <button
               type="button"
-              style={styles.tool}
+              {...partProps(classNames, "tool")}
               disabled={history.undone.length === 0}
               onClick={() => setHistory(redoHistory(historyRef.current))}
             >
@@ -521,28 +517,28 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
             </button>
             <button
               type="button"
-              style={styles.tool}
+              {...partProps(classNames, "tool")}
               disabled={percent <= ZOOM_STEPS[0]}
               onClick={() => zoomBy(-1)}
             >
               {labels.zoomOut}
             </button>
-            <output style={styles.zoomLevel}>{labels.zoomLevel(percent)}</output>
+            <output {...partProps(classNames, "zoom-level")}>{labels.zoomLevel(percent)}</output>
             <button
               type="button"
-              style={styles.tool}
+              {...partProps(classNames, "tool")}
               disabled={percent >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
               onClick={() => zoomBy(1)}
             >
               {labels.zoomIn}
             </button>
-            <button type="button" style={styles.tool} onClick={() => setZoom(null)}>
+            <button type="button" {...partProps(classNames, "tool")} onClick={() => setZoom(null)}>
               {labels.fit}
             </button>
             <button
               type="button"
               aria-pressed={tool === "crop"}
-              style={toolStyle(tool === "crop")}
+              {...partProps(classNames, "tool")}
               onClick={() => {
                 commitText();
                 setTool("crop");
@@ -552,13 +548,13 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
             </button>
           </>
         ) : null}
-        <button type="button" style={styles.tool} onClick={() => inputRef.current?.click()}>
+        <button type="button" {...partProps(classNames, "tool")} onClick={() => inputRef.current?.click()}>
           {labels.replace}
         </button>
         <button
           type="button"
           aria-pressed={expanded}
-          style={toolStyle(expanded)}
+          {...partProps(classNames, "tool")}
           onClick={onToggleExpanded}
         >
           {expanded ? labels.exitFullscreen : labels.enterFullscreen}
@@ -570,7 +566,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       return (
         <div>
           {toolbar}
-          <div style={styles.placeholder}>
+          <div {...partProps(classNames, "placeholder")}>
             <span>{labels.captureFailed}</span>
             <span>{labels.captureFallbackHint}</span>
             {upload}
@@ -583,14 +579,14 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
     return (
       <div>
         {toolbar}
-        <div style={styles.canvasScroll}>
-          <div style={styles.canvasStage}>
+        <div {...partProps(classNames, "canvas-scroll")}>
+          <div {...partProps(classNames, "canvas-stage")} style={{ position: "relative" }}>
             <canvas
               ref={canvasRef}
               role="img"
               aria-label={labels.screenshotTitle}
+              {...partProps(classNames, "canvas")}
               style={{
-                ...styles.image,
                 touchAction: "none",
                 cursor: tool === "text" ? "text" : "crosshair",
                 ...(crop && zoom !== null ? { width: `${Math.round((crop.width * zoom) / 100)}px` } : {}),
@@ -652,8 +648,9 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
                   commitText();
                 }}
                 onBlur={() => commitText(text.id)}
+                {...partProps(classNames, "text-input")}
                 style={{
-                  ...styles.textInput,
+                  position: "absolute",
                   left: (text.at.x - crop.x) * scale,
                   top: (text.at.y - crop.y) * scale,
                 }}
