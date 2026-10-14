@@ -23,7 +23,7 @@ const REQUIRED = [
   "dist/server.js",
   "dist/server.d.ts",
 ];
-const EXPORTS = "BUG_KINDS,BUG_REPORT_PARTS,BugReportButton,BugReportDialog,SUMMARY_LIMIT,buildBugReportForm,defaultLabels";
+const EXPORTS = "BUG_KINDS,BUG_REPORT_PARTS,BugReportButton,BugReportDialog,SUMMARY_LIMIT,ScreenshotEditor,buildBugReportForm,defaultLabels";
 const LINKED = ["react", "react-dom", "html-to-image", "@types/react", "@types/react-dom"];
 
 const PROBE_MJS = `import * as kit from "@sylly-mika/bugkit";

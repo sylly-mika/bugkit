@@ -349,6 +349,24 @@ export const BUGKIT_CSS = `@layer theme, base, bugkit, components, utilities;
     flex-direction: column;
     gap: 8px;
   }
+  :where([data-bugkit="editor"]) {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  :where([data-bugkit="editor"][data-expanded="true"]) {
+    position: fixed;
+    inset: 0px;
+    z-index: 59;
+    padding: 16px;
+    overflow: auto;
+    background: var(--color-background, #ffffff);
+  }
+  :where([data-bugkit="editor"] [data-bugkit="toolbar"]) {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
 }`;
 
 export function useBugkitStyles(nonce?: string): void {
