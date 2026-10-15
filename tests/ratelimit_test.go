@@ -1,6 +1,7 @@
-package bugkit
+package tests
 
 import (
+	"github.com/sylly-mika/bugkit"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -10,7 +11,7 @@ import (
 var t0 = time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 
 func TestRateLimiterRefusesPastTheCap(t *testing.T) {
-	l := NewRateLimiter(3, time.Hour)
+	l := bugkit.NewRateLimiter(3, time.Hour)
 	for i, at := range []time.Time{t0, t0.Add(time.Minute), t0.Add(2 * time.Minute)} {
 		if ok, wait := l.Allow("a", at); !ok || wait != 0 {
 			t.Fatalf("attempt %d: got (%v, %v), want (true, 0)", i+1, ok, wait)
@@ -23,7 +24,7 @@ func TestRateLimiterRefusesPastTheCap(t *testing.T) {
 }
 
 func TestRateLimiterIsPerKey(t *testing.T) {
-	l := NewRateLimiter(1, time.Hour)
+	l := bugkit.NewRateLimiter(1, time.Hour)
 	if ok, _ := l.Allow("a", t0); !ok {
 		t.Fatal(`first "a" refused`)
 	}
@@ -36,7 +37,7 @@ func TestRateLimiterIsPerKey(t *testing.T) {
 }
 
 func TestRateLimiterPrunesTheWindow(t *testing.T) {
-	l := NewRateLimiter(1, time.Hour)
+	l := bugkit.NewRateLimiter(1, time.Hour)
 	if ok, _ := l.Allow("a", t0); !ok {
 		t.Fatal("first attempt refused")
 	}
@@ -49,11 +50,11 @@ func TestRateLimiterPrunesTheWindow(t *testing.T) {
 }
 
 func TestRateLimiterNilOrZeroCapAllows(t *testing.T) {
-	var nilLimiter *RateLimiter
-	for name, l := range map[string]*RateLimiter{
+	var nilLimiter *bugkit.RateLimiter
+	for name, l := range map[string]*bugkit.RateLimiter{
 		"nil":  nilLimiter,
-		"zero": NewRateLimiter(0, time.Hour),
-		"neg":  NewRateLimiter(-1, time.Hour),
+		"zero": bugkit.NewRateLimiter(0, time.Hour),
+		"neg":  bugkit.NewRateLimiter(-1, time.Hour),
 	} {
 		for i := 0; i < 20; i++ {
 			if ok, wait := l.Allow("a", t0); !ok || wait != 0 {
@@ -64,7 +65,7 @@ func TestRateLimiterNilOrZeroCapAllows(t *testing.T) {
 }
 
 func TestRateLimiterUnderConcurrentCallers(t *testing.T) {
-	l := NewRateLimiter(50, time.Hour)
+	l := bugkit.NewRateLimiter(50, time.Hour)
 	var wg sync.WaitGroup
 	var allowed atomic.Int64
 	for i := 0; i < 100; i++ {

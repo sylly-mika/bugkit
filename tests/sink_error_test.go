@@ -1,4 +1,4 @@
-package bugkit
+package tests
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sylly-mika/bugkit"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -14,11 +15,11 @@ import (
 	"time"
 )
 
-// failingSink is a Sink whose Submit always returns the given error.
+// failingSink is a bugkit.Sink whose Submit always returns the given error.
 type failingSink struct{ err error }
 
-func (s failingSink) Submit(ctx context.Context, who Reporter, r Report) (Result, error) {
-	return Result{}, s.err
+func (s failingSink) Submit(ctx context.Context, who bugkit.Reporter, r bugkit.Report) (bugkit.Result, error) {
+	return bugkit.Result{}, s.err
 }
 
 // serveSinkFailure posts a valid browser form to a handler whose sink returns
@@ -26,13 +27,13 @@ func (s failingSink) Submit(ctx context.Context, who Reporter, r Report) (Result
 func serveSinkFailure(t *testing.T, err error) (*httptest.ResponseRecorder, string) {
 	t.Helper()
 	var buf bytes.Buffer
-	cfg := Config{
+	cfg := bugkit.Config{
 		Sink: failingSink{err},
-		Who: func(*http.Request) (Reporter, bool) {
-			return Reporter{ID: "u-1", Name: "Ann Lee", Email: "reporter@example.test"}, true
+		Who: func(*http.Request) (bugkit.Reporter, bool) {
+			return bugkit.Reporter{ID: "u-1", Name: "Ann Lee", Email: "reporter@example.test"}, true
 		},
-		Limiter: NewRateLimiter(100, time.Hour),
-		Limits:  DefaultLimits(),
+		Limiter: bugkit.NewRateLimiter(100, time.Hour),
+		Limits:  bugkit.DefaultLimits(),
 		Logger:  slog.New(slog.NewTextHandler(&buf, nil)),
 	}
 	fields := map[string]string{
@@ -45,7 +46,7 @@ func serveSinkFailure(t *testing.T, err error) (*httptest.ResponseRecorder, stri
 	req := httptest.NewRequest("POST", "/bug-reports", body)
 	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
-	Handler(cfg).ServeHTTP(rec, req)
+	bugkit.Handler(cfg).ServeHTTP(rec, req)
 	return rec, buf.String()
 }
 
@@ -61,7 +62,7 @@ func problemDetailOf(t *testing.T, rec *httptest.ResponseRecorder) string {
 }
 
 func TestSinkError429RelaysTheWait(t *testing.T) {
-	err := fmt.Errorf("relay: %w", &SinkError{Status: 429, RetryAfter: 120 * time.Second})
+	err := fmt.Errorf("relay: %w", &bugkit.SinkError{Status: 429, RetryAfter: 120 * time.Second})
 	rec, _ := serveSinkFailure(t, err)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429", rec.Code)
@@ -86,7 +87,7 @@ func TestSinkError429RoundsTheWaitUp(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			rec, _ := serveSinkFailure(t, &SinkError{Status: 429, RetryAfter: tc.retryAfter})
+			rec, _ := serveSinkFailure(t, &bugkit.SinkError{Status: 429, RetryAfter: tc.retryAfter})
 			if rec.Code != http.StatusTooManyRequests {
 				t.Fatalf("status = %d, want 429", rec.Code)
 			}
@@ -105,7 +106,7 @@ func TestSinkErrorKeyRefusalsAre503(t *testing.T) {
 	const want = "Bug reporting is not configured on this server."
 	for _, status := range []int{401, 403, 409} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
-			rec, _ := serveSinkFailure(t, &SinkError{Status: status})
+			rec, _ := serveSinkFailure(t, &bugkit.SinkError{Status: status})
 			if rec.Code != http.StatusServiceUnavailable {
 				t.Fatalf("status = %d, want 503", rec.Code)
 			}
@@ -126,9 +127,9 @@ func TestSinkErrorOtherwiseIs502(t *testing.T) {
 		err     error
 		wantLog string
 	}{
-		{"400", &SinkError{Status: 400}, ""},
-		{"422", &SinkError{Status: 422}, ""},
-		{"500", &SinkError{Status: 500}, "status=500"},
+		{"400", &bugkit.SinkError{Status: 400}, ""},
+		{"422", &bugkit.SinkError{Status: 422}, ""},
+		{"500", &bugkit.SinkError{Status: 500}, "status=500"},
 		{"plain error", errors.New("dial tcp: connection refused"), "connection refused"},
 	}
 	for _, tc := range cases {
@@ -147,5 +148,16 @@ func TestSinkErrorOtherwiseIs502(t *testing.T) {
 				t.Fatalf("log holds the reporter's email: %s", logText)
 			}
 		})
+	}
+}
+
+func TestSinkErrorNamesOnlyTheStatus(t *testing.T) {
+	if got := (&bugkit.SinkError{Status: 429, RetryAfter: time.Minute}).Error(); got != "bugkit: intake answered 429" {
+		t.Fatalf("Error() = %q", got)
+	}
+	var se *bugkit.SinkError
+	wrapped := fmt.Errorf("wrap: %w", &bugkit.SinkError{Status: 503})
+	if !errors.As(wrapped, &se) || se.Status != 503 {
+		t.Fatalf("errors.As through a wrap: got %v", se)
 	}
 }

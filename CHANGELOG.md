@@ -7,6 +7,7 @@
 - `dist/` is no longer committed. Each GitHub release attaches the packed
   `.tgz`, and that is how apps install from v0.5.0 on.
 - v0.4.0 and older still install from their git tags.
+- The Go tests live in `tests/`, not at the module root.
 - No API change in either package.
 
 ## v0.4.0
