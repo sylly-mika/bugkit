@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.5.0
+
+- The npm package lives in `js/`. The Go module stays at the root; its import
+  path and `vX.Y.Z` tags are unchanged.
+- `dist/` is no longer committed. Each GitHub release attaches the packed
+  `.tgz`, and that is how apps install from v0.5.0 on.
+- v0.4.0 and older still install from their git tags.
+- No API change in either package.
+
 ## v0.4.0
 
 - `ScreenshotEditor`: the report dialog's screenshot editor as a standalone component. It takes `image` (a `data:` or `blob:` URL) and returns the edited PNG from its ref's `toBlob()`; toolbar, zoom, crop, undo/redo and full screen as in the dialog. New part `editor`.

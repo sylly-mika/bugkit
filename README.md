@@ -27,15 +27,19 @@ Go 1.26 or later:
 go get github.com/sylly-mika/bugkit@v0.3.0
 ```
 
-npm, from the git tag (there is no registry release):
+npm, from the release asset (each GitHub release from v0.5.0 on attaches the
+packed `.tgz`):
 
 ```sh
-npm install github:sylly-mika/bugkit#v0.3.0 html-to-image@^1.11.13
+npm install https://github.com/sylly-mika/bugkit/releases/download/v0.5.0/sylly-mika-bugkit-0.5.0.tgz html-to-image@^1.11.13
 ```
 
+Tags up to v0.4.0 also install from git (`github:sylly-mika/bugkit#v0.4.0`),
+because they carry `dist/`.
+
 `react` and `react-dom` (`^19.2.7`) and `html-to-image` (`^1.11.13`) are
-peer dependencies. Each tag carries the built `dist/`, so the install runs no
-build script and needs no dev dependency.
+peer dependencies. The package carries the built `dist/`, so the install runs
+no build script and needs no dev dependency.
 
 ## How a report travels
 
@@ -340,18 +344,20 @@ go vet ./...
 go test -race -count=1 ./...
 ```
 
-npm (`npm ci` first):
+npm (`npm ci` first, in `js/`):
 
 ```sh
+cd js && npm ci
 npm run typecheck
 npm run test
-npm run build        # tsc -p tsconfig.build.json into dist/
+npm run build        # tsc -p tsconfig.build.json into js/dist/
 npm run check:pack   # packs the package and uses it from a temp app
+npm run pack         # writes sylly-mika-bugkit-X.Y.Z.tgz into js/
 ```
 
-`dist/` is committed: run `npm run build` and commit `dist/` with every change
-under `src/`. CI fails when the build changes `dist/`. A release updates
-`CHANGELOG.md` and tags `vX.Y.Z` on a commit whose CI is green.
+`dist/` is built, not committed. A release updates `CHANGELOG.md` and tags
+`vX.Y.Z` on a commit whose CI is green; the release workflow then attaches the
+packed `.tgz` to the release.
 
 ## License
 
