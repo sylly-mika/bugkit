@@ -1,4 +1,4 @@
-package bugkit
+package tests
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sylly-mika/bugkit"
 	"io"
 	"log/slog"
 	"mime/multipart"
@@ -71,23 +72,23 @@ func multipartBody(t *testing.T, fields map[string]string, screenshot []byte) (*
 }
 
 // fakeSink records what the handler submits. It takes its own mutex, as the
-// Sink contract requires of the app's sinks.
+// bugkit.Sink contract requires of the app's sinks.
 type fakeSink struct {
 	mu          sync.Mutex
 	calls       int
-	who         Reporter
-	got         Report
+	who         bugkit.Reporter
+	got         bugkit.Report
 	deadline    time.Time
 	hasDeadline bool
-	res         Result
+	res         bugkit.Result
 	err         error
 }
 
 func newFakeSink() *fakeSink {
-	return &fakeSink{res: Result{ID: "t-1", Number: 7}}
+	return &fakeSink{res: bugkit.Result{ID: "t-1", Number: 7}}
 }
 
-func (s *fakeSink) Submit(ctx context.Context, who Reporter, r Report) (Result, error) {
+func (s *fakeSink) Submit(ctx context.Context, who bugkit.Reporter, r bugkit.Report) (bugkit.Result, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
@@ -97,8 +98,8 @@ func (s *fakeSink) Submit(ctx context.Context, who Reporter, r Report) (Result, 
 	return s.res, s.err
 }
 
-func whoMiky(*http.Request) (Reporter, bool) {
-	return Reporter{ID: "u-1", Name: "Miky", Email: "miky@ino.lv"}, true
+func whoMiky(*http.Request) (bugkit.Reporter, bool) {
+	return bugkit.Reporter{ID: "u-1", Name: "Miky", Email: "miky@ino.lv"}, true
 }
 
 const (
@@ -107,17 +108,17 @@ const (
 )
 
 // serve runs one raw request through the handler and returns the recorder.
-func serve(cfg Config, body io.Reader, contentType, userAgent string) *httptest.ResponseRecorder {
+func serve(cfg bugkit.Config, body io.Reader, contentType, userAgent string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, reportPath, body)
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", userAgent)
 	rec := httptest.NewRecorder()
-	Handler(cfg).ServeHTTP(rec, req)
+	bugkit.Handler(cfg).ServeHTTP(rec, req)
 	return rec
 }
 
 // post sends one multipart report through the handler.
-func post(t *testing.T, cfg Config, fields map[string]string, shot []byte) *httptest.ResponseRecorder {
+func post(t *testing.T, cfg bugkit.Config, fields map[string]string, shot []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	body, ct := multipartBody(t, fields, shot)
 	return serve(cfg, body, ct, browserAgent)
@@ -144,7 +145,7 @@ func assertProblem(t *testing.T, rec *httptest.ResponseRecorder, status int, det
 
 func TestHandlerFilesAReport(t *testing.T) {
 	sink := newFakeSink()
-	cfg := Config{Sink: sink, Who: whoMiky}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky}
 	fields := validParts()
 	fields["description"] = "  The plans list returns nothing after I pick a site.\n"
 	rec := post(t, cfg, fields, pngBytes)
@@ -155,11 +156,11 @@ func TestHandlerFilesAReport(t *testing.T) {
 	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=UTF-8" {
 		t.Errorf("content type = %q", ct)
 	}
-	var res Result
+	var res bugkit.Result
 	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
 		t.Fatalf("decode body: %v\n%s", err, rec.Body.String())
 	}
-	if res != (Result{ID: "t-1", Number: 7}) {
+	if res != (bugkit.Result{ID: "t-1", Number: 7}) {
 		t.Errorf("body = %+v, want {t-1 7}", res)
 	}
 	if sink.calls != 1 {
@@ -183,7 +184,7 @@ func TestHandlerPassesKindAndSummary(t *testing.T) {
 	fields := validParts()
 	fields["kind"] = "feature"
 	fields["summary"] = "  Export the plan list \n"
-	rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil)
+	rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201\n%s", rec.Code, rec.Body.String())
@@ -201,7 +202,7 @@ func TestHandlerTakesAnOldReportAsABug(t *testing.T) {
 	emptyKind["kind"] = ""
 	for name, fields := range map[string]map[string]string{"no kind part": validParts(), "empty kind": emptyKind} {
 		sink := newFakeSink()
-		rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil)
+		rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil)
 
 		if rec.Code != http.StatusCreated {
 			t.Fatalf("%s: status = %d, want 201\n%s", name, rec.Code, rec.Body.String())
@@ -222,12 +223,12 @@ func TestHandlerTakesTheReporterFromWho(t *testing.T) {
 	fields["reporter_email"] = "mallory@evil.test"
 	fields["user_agent"] = "FakeAgent/1"
 	fields["extra"] = "ignored"
-	rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil)
+	rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201\n%s", rec.Code, rec.Body.String())
 	}
-	if sink.who != (Reporter{ID: "u-1", Name: "Miky", Email: "miky@ino.lv"}) {
+	if sink.who != (bugkit.Reporter{ID: "u-1", Name: "Miky", Email: "miky@ino.lv"}) {
 		t.Errorf("reporter = %+v, want the one Who returned", sink.who)
 	}
 	if sink.got.UserAgent != browserAgent {
@@ -238,7 +239,7 @@ func TestHandlerTakesTheReporterFromWho(t *testing.T) {
 func TestHandlerTruncatesTheUserAgent(t *testing.T) {
 	sink := newFakeSink()
 	body, ct := multipartBody(t, validParts(), nil)
-	rec := serve(Config{Sink: sink, Who: whoMiky}, body, ct, strings.Repeat("é", 300))
+	rec := serve(bugkit.Config{Sink: sink, Who: whoMiky}, body, ct, strings.Repeat("é", 300))
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201\n%s", rec.Code, rec.Body.String())
@@ -253,7 +254,7 @@ func TestHandlerPassesDiagnosticsThroughUntouched(t *testing.T) {
 	const diag = "{ \"b\": 1,\n  \"a\": [2] }\n"
 	fields := validParts()
 	fields["diagnostics"] = diag
-	rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil)
+	rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201\n%s", rec.Code, rec.Body.String())
@@ -265,7 +266,7 @@ func TestHandlerPassesDiagnosticsThroughUntouched(t *testing.T) {
 
 func TestHandlerWithoutAScreenshotSubmitsTextOnly(t *testing.T) {
 	sink := newFakeSink()
-	cfg := Config{Sink: sink, Who: whoMiky}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky}
 
 	// (a) no screenshot part at all
 	rec := post(t, cfg, validParts(), nil)
@@ -288,7 +289,7 @@ func TestHandlerWithoutAScreenshotSubmitsTextOnly(t *testing.T) {
 func TestHandlerSubmitsWithA30SecondDeadline(t *testing.T) {
 	sink := newFakeSink()
 	start := time.Now()
-	rec := post(t, Config{Sink: sink, Who: whoMiky}, validParts(), nil)
+	rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, validParts(), nil)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201\n%s", rec.Code, rec.Body.String())
@@ -303,10 +304,10 @@ func TestHandlerSubmitsWithA30SecondDeadline(t *testing.T) {
 
 func TestRefusal401WhenThereIsNoIdentity(t *testing.T) {
 	sink := newFakeSink()
-	none := func(*http.Request) (Reporter, bool) { return Reporter{}, false }
+	none := func(*http.Request) (bugkit.Reporter, bool) { return bugkit.Reporter{}, false }
 
-	assertProblem(t, post(t, Config{Sink: sink, Who: none}, validParts(), nil), http.StatusUnauthorized, "Not authenticated.")
-	assertProblem(t, post(t, Config{Sink: sink}, validParts(), nil), http.StatusUnauthorized, "Not authenticated.")
+	assertProblem(t, post(t, bugkit.Config{Sink: sink, Who: none}, validParts(), nil), http.StatusUnauthorized, "Not authenticated.")
+	assertProblem(t, post(t, bugkit.Config{Sink: sink}, validParts(), nil), http.StatusUnauthorized, "Not authenticated.")
 	if sink.calls != 0 {
 		t.Fatalf("sink calls = %d, want 0", sink.calls)
 	}
@@ -314,20 +315,20 @@ func TestRefusal401WhenThereIsNoIdentity(t *testing.T) {
 
 func TestRefusalOrderBeforeTheBody(t *testing.T) {
 	sink := newFakeSink()
-	none := func(*http.Request) (Reporter, bool) { return Reporter{}, false }
+	none := func(*http.Request) (bugkit.Reporter, bool) { return bugkit.Reporter{}, false }
 
 	// (a) no identity and no sink: identity is checked first
-	rec := serve(Config{Who: none}, strings.NewReader("hello"), "text/plain", browserAgent)
+	rec := serve(bugkit.Config{Who: none}, strings.NewReader("hello"), "text/plain", browserAgent)
 	assertProblem(t, rec, http.StatusUnauthorized, "Not authenticated.")
 
 	// (b) no sink: 503 before the body is read
-	rec = serve(Config{Who: whoMiky}, strings.NewReader("hello"), "text/plain", browserAgent)
+	rec = serve(bugkit.Config{Who: whoMiky}, strings.NewReader("hello"), "text/plain", browserAgent)
 	assertProblem(t, rec, http.StatusServiceUnavailable, "Bug reporting is not configured on this server.")
 
 	// (c) the limiter is spent: 429 before the body is read
-	lim := NewRateLimiter(1, time.Hour)
+	lim := bugkit.NewRateLimiter(1, time.Hour)
 	lim.Allow("u-1", time.Now())
-	rec = serve(Config{Sink: sink, Who: whoMiky, Limiter: lim}, strings.NewReader("hello"), "text/plain", browserAgent)
+	rec = serve(bugkit.Config{Sink: sink, Who: whoMiky, Limiter: lim}, strings.NewReader("hello"), "text/plain", browserAgent)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("spent limiter: status = %d, want 429\n%s", rec.Code, rec.Body.String())
 	}
@@ -344,7 +345,7 @@ func TestRefusalOrderBeforeTheBody(t *testing.T) {
 
 func TestRefusal429AfterTheCap(t *testing.T) {
 	sink := newFakeSink()
-	cfg := Config{Sink: sink, Who: whoMiky, Limiter: NewRateLimiter(2, time.Hour)}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky, Limiter: bugkit.NewRateLimiter(2, time.Hour)}
 	for i := 1; i <= 2; i++ {
 		if rec := post(t, cfg, validParts(), nil); rec.Code != http.StatusCreated {
 			t.Fatalf("report %d: status = %d, want 201", i, rec.Code)
@@ -364,7 +365,7 @@ func TestRefusal429AfterTheCap(t *testing.T) {
 
 func TestRefusal429CountsRefusedReports(t *testing.T) {
 	sink := newFakeSink()
-	cfg := Config{Sink: sink, Who: whoMiky, Limiter: NewRateLimiter(1, time.Hour)}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky, Limiter: bugkit.NewRateLimiter(1, time.Hour)}
 
 	blank := validParts()
 	blank["description"] = ""
@@ -381,7 +382,7 @@ func TestRefusal429CountsRefusedReports(t *testing.T) {
 
 func TestRefusal400OnAMalformedBody(t *testing.T) {
 	sink := newFakeSink()
-	cfg := Config{Sink: sink, Who: whoMiky}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky}
 	const detail = "The report body is not a readable multipart form."
 
 	assertProblem(t, serve(cfg, strings.NewReader("hello"), "text/plain", browserAgent), http.StatusBadRequest, detail)
@@ -397,7 +398,7 @@ func TestRefusal502WhenTheSinkFails(t *testing.T) {
 	var buf bytes.Buffer
 	sink := newFakeSink()
 	sink.err = errors.New("upstream down")
-	cfg := Config{Sink: sink, Who: whoMiky, Logger: slog.New(slog.NewTextHandler(&buf, nil))}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky, Logger: slog.New(slog.NewTextHandler(&buf, nil))}
 	assertProblem(t, post(t, cfg, validParts(), nil), http.StatusBadGateway, detail)
 	logs := buf.String()
 	for _, want := range []string{"bugkit: submission failed", "reporter=u-1", "upstream down"} {
@@ -413,8 +414,8 @@ func TestRefusal502WhenTheSinkFails(t *testing.T) {
 
 	buf.Reset()
 	sink = newFakeSink()
-	sink.err = &SinkError{Status: 500}
-	cfg = Config{Sink: sink, Who: whoMiky, Logger: slog.New(slog.NewTextHandler(&buf, nil))}
+	sink.err = &bugkit.SinkError{Status: 500}
+	cfg = bugkit.Config{Sink: sink, Who: whoMiky, Logger: slog.New(slog.NewTextHandler(&buf, nil))}
 	assertProblem(t, post(t, cfg, validParts(), nil), http.StatusBadGateway, detail)
 	if !strings.Contains(buf.String(), "bugkit: intake answered 500") {
 		t.Errorf("log lacks the sink status:\n%s", buf.String())
