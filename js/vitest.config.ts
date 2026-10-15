@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    setupFiles: ["./vitest.setup.ts"],
+    setupFiles: ["@testing-library/jest-dom/vitest"],
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     testTimeout: 15_000,
   },

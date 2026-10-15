@@ -3,3 +3,7 @@ node_modules/
 *.out
 *.tgz
 coverage/
+js/dist/
+js/README.md
+js/LICENSE
+js/*.tgz
