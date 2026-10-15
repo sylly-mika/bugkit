@@ -1,7 +1,8 @@
-package bugkit
+package tests
 
 import (
 	"encoding/json"
+	"github.com/sylly-mika/bugkit"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,10 +10,10 @@ import (
 )
 
 func TestProblemBodyShape(t *testing.T) {
-	none := func(*http.Request) (Reporter, bool) { return Reporter{}, false }
+	none := func(*http.Request) (bugkit.Reporter, bool) { return bugkit.Reporter{}, false }
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/bug-reports?from=test", strings.NewReader("x"))
 	rec := httptest.NewRecorder()
-	Handler(Config{Sink: newFakeSink(), Who: none}).ServeHTTP(rec, req)
+	bugkit.Handler(bugkit.Config{Sink: newFakeSink(), Who: none}).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
@@ -40,7 +41,7 @@ func TestProblemBodyShape(t *testing.T) {
 		}
 	}
 
-	rec = post(t, Config{Sink: newFakeSink(), Who: whoMiky}, map[string]string{
+	rec = post(t, bugkit.Config{Sink: newFakeSink(), Who: whoMiky}, map[string]string{
 		"description": "d", "impact": "urgent", "area": "/a", "diagnostics": "{}",
 	}, nil)
 	if rec.Code != http.StatusUnprocessableEntity {

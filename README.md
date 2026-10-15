@@ -344,6 +344,8 @@ go vet ./...
 go test -race -count=1 ./...
 ```
 
+The Go tests live in `tests/`, as an external package that imports the module.
+
 npm (`npm ci` first, in `js/`):
 
 ```sh

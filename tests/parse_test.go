@@ -1,6 +1,7 @@
-package bugkit
+package tests
 
 import (
+	"github.com/sylly-mika/bugkit"
 	"net/http"
 	"strings"
 	"testing"
@@ -42,7 +43,7 @@ func TestRefusal422OnBadFields(t *testing.T) {
 			sink := newFakeSink()
 			fields := validParts()
 			c.edit(fields)
-			rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil)
+			rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil)
 			assertProblem(t, rec, http.StatusUnprocessableEntity, c.detail)
 			if sink.calls != 0 {
 				t.Fatalf("sink calls = %d, want 0", sink.calls)
@@ -55,11 +56,11 @@ func TestSummaryCapCountsRunesAndFollowsTheLimits(t *testing.T) {
 	sink := newFakeSink()
 	fields := validParts()
 	fields["summary"] = strings.Repeat("é", 200)
-	if rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil); rec.Code != http.StatusCreated {
+	if rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil); rec.Code != http.StatusCreated {
 		t.Fatalf("200 runes: status = %d, want 201\n%s", rec.Code, rec.Body.String())
 	}
 
-	cfg := Config{Sink: sink, Who: whoMiky, Limits: Limits{Summary: 10}}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky, Limits: bugkit.Limits{Summary: 10}}
 	fields["summary"] = strings.Repeat("s", 11)
 	assertProblem(t, post(t, cfg, fields, nil), http.StatusUnprocessableEntity, "Summary must be at most 10 characters.")
 
@@ -78,7 +79,7 @@ func TestCapsCountRunesAndBytes(t *testing.T) {
 	fields["version"] = strings.Repeat("é", 128)
 	fields["viewport"] = strings.Repeat("1", 64)
 	fields["request_id"] = strings.Repeat("é", 128)
-	rec := post(t, Config{Sink: sink, Who: whoMiky}, fields, nil)
+	rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil)
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201\n%s", rec.Code, rec.Body.String())
@@ -92,13 +93,13 @@ func TestCapsCountRunesAndBytes(t *testing.T) {
 }
 
 func TestHandlerUsesTheConfiguredLimits(t *testing.T) {
-	want := Limits{Summary: 200, Description: 5000, Area: 512, Version: 128, Viewport: 64, RequestID: 128, UserAgent: 256, Diagnostics: 32768, Screenshot: 5242880}
-	if got := DefaultLimits(); got != want {
+	want := bugkit.Limits{Summary: 200, Description: 5000, Area: 512, Version: 128, Viewport: 64, RequestID: 128, UserAgent: 256, Diagnostics: 32768, Screenshot: 5242880}
+	if got := bugkit.DefaultLimits(); got != want {
 		t.Fatalf("DefaultLimits() = %+v, want %+v", got, want)
 	}
 
 	sink := newFakeSink()
-	cfg := Config{Sink: sink, Who: whoMiky, Limits: Limits{Description: 10}}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky, Limits: bugkit.Limits{Description: 10}}
 
 	fields := validParts()
 	fields["description"] = "12345678901"
@@ -114,7 +115,7 @@ func TestHandlerUsesTheConfiguredLimits(t *testing.T) {
 
 func TestRefusal422OnAScreenshotThatIsNotPNG(t *testing.T) {
 	sink := newFakeSink()
-	rec := post(t, Config{Sink: sink, Who: whoMiky}, validParts(), []byte("GIF89a not a png"))
+	rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, validParts(), []byte("GIF89a not a png"))
 	assertProblem(t, rec, http.StatusUnprocessableEntity, "Screenshot must be a PNG image.")
 	if sink.calls != 0 {
 		t.Fatalf("sink calls = %d, want 0", sink.calls)
@@ -125,11 +126,11 @@ func TestRefusal413OnAnOversizeScreenshot(t *testing.T) {
 	sink := newFakeSink()
 
 	// (a) default limits
-	assertProblem(t, post(t, Config{Sink: sink, Who: whoMiky}, validParts(), pngOfSize(5242881)),
+	assertProblem(t, post(t, bugkit.Config{Sink: sink, Who: whoMiky}, validParts(), pngOfSize(5242881)),
 		http.StatusRequestEntityTooLarge, "The screenshot is larger than 5 MiB.")
 
 	// (b) and (c): a 64-byte cap
-	cfg := Config{Sink: sink, Who: whoMiky, Limits: Limits{Screenshot: 64}}
+	cfg := bugkit.Config{Sink: sink, Who: whoMiky, Limits: bugkit.Limits{Screenshot: 64}}
 	assertProblem(t, post(t, cfg, validParts(), pngOfSize(65)),
 		http.StatusRequestEntityTooLarge, "The screenshot is larger than 64 bytes.")
 	if sink.calls != 0 {
@@ -152,13 +153,13 @@ func TestRefusal413OnAnOversizeBody(t *testing.T) {
 	// (a) default limits: the body cap is the screenshot cap plus 1 MiB
 	fields := validParts()
 	fields["padding"] = strings.Repeat("a", 6291457)
-	assertProblem(t, post(t, Config{Sink: sink, Who: whoMiky}, fields, nil),
+	assertProblem(t, post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil),
 		http.StatusRequestEntityTooLarge, "The report is larger than 6 MiB.")
 
 	// (b) a 64-byte screenshot cap gives a body cap of 64 bytes plus 1 MiB
 	fields = validParts()
 	fields["padding"] = strings.Repeat("a", 1048641)
-	assertProblem(t, post(t, Config{Sink: sink, Who: whoMiky, Limits: Limits{Screenshot: 64}}, fields, nil),
+	assertProblem(t, post(t, bugkit.Config{Sink: sink, Who: whoMiky, Limits: bugkit.Limits{Screenshot: 64}}, fields, nil),
 		http.StatusRequestEntityTooLarge, "The report is larger than 1048640 bytes.")
 
 	if sink.calls != 0 {
@@ -171,11 +172,11 @@ func TestSizeTextNamesTheUnit(t *testing.T) {
 
 	fields := validParts()
 	fields["diagnostics"] = `"` + strings.Repeat("a", 2047) + `"`
-	assertProblem(t, post(t, Config{Sink: sink, Who: whoMiky, Limits: Limits{Diagnostics: 2048}}, fields, nil),
+	assertProblem(t, post(t, bugkit.Config{Sink: sink, Who: whoMiky, Limits: bugkit.Limits{Diagnostics: 2048}}, fields, nil),
 		http.StatusUnprocessableEntity, "Diagnostics must be at most 2 KiB.")
 
 	fields = validParts()
 	fields["diagnostics"] = `"` + strings.Repeat("a", 99) + `"`
-	assertProblem(t, post(t, Config{Sink: sink, Who: whoMiky, Limits: Limits{Diagnostics: 100}}, fields, nil),
+	assertProblem(t, post(t, bugkit.Config{Sink: sink, Who: whoMiky, Limits: bugkit.Limits{Diagnostics: 100}}, fields, nil),
 		http.StatusUnprocessableEntity, "Diagnostics must be at most 100 bytes.")
 }
