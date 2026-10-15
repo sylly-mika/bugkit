@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join, posix, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { packPackage } from "./pack.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const failures = [];
@@ -75,12 +76,7 @@ function checkScripts() {
 }
 
 function pack(tmp) {
-  const out = execFileSync(
-    "npm",
-    ["pack", "--json", "--offline", "--ignore-scripts", "--pack-destination", tmp],
-    { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-  );
-  const [info] = JSON.parse(out);
+  const info = packPackage(["--offline", "--ignore-scripts", "--pack-destination", tmp]);
   const paths = info.files.map((f) => f.path);
   for (const p of paths) {
     if (!ALLOWED.test(p) || p.includes(".test.")) failures.push(`packed file not allowed: ${p}`);

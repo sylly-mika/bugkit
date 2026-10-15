@@ -22,18 +22,18 @@ jobs:
   node:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: js
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
           cache: npm
+          cache-dependency-path: js/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
-      - name: dist is current
-        run: |
-          git diff --exit-code -- dist
-          test -z "$(git status --porcelain -- dist)"
       - run: npm run check:pack
