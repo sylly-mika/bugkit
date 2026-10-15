@@ -40,6 +40,7 @@ export const BUG_REPORT_PARTS = [
     "canvas-stage",
     "canvas",
     "text-input",
+    "editor",
 ];
 // WHY: unlayered rules beat every layer, so an unlayered sheet would beat Tailwind v4 utilities; a layer declared first and placed between `base` and `components` sits above Tailwind v4's preflight (the look survives, as the admin needs) and below its utilities and any unlayered app CSS (app classes win). On a page without Tailwind the other four layers are empty.
 export const BUGKIT_CSS = `@layer theme, base, bugkit, components, utilities;
@@ -341,6 +342,24 @@ export const BUGKIT_CSS = `@layer theme, base, bugkit, components, utilities;
     display: flex;
     flex-direction: column;
     gap: 8px;
+  }
+  :where([data-bugkit="editor"]) {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+  }
+  :where([data-bugkit="editor"][data-expanded="true"]) {
+    position: fixed;
+    inset: 0px;
+    z-index: 59;
+    padding: 16px;
+    overflow: auto;
+    background: var(--color-background, #ffffff);
+  }
+  :where([data-bugkit="editor"] [data-bugkit="toolbar"]) {
+    flex-wrap: nowrap;
+    overflow-x: auto;
   }
 }`;
 export function useBugkitStyles(nonce) {

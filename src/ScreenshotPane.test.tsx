@@ -200,6 +200,33 @@ describe("the screenshot pane", () => {
     expect(paint[fill].fillStyle).toBe("#000000");
   });
 
+  it("draws a filled arrow head 12px back from the tip, at 30 degrees either side", async () => {
+    const { ref, canvas } = await renderPane();
+    drag(canvas, [10, 10], [60, 40]);
+
+    await ref.current!.toBlob();
+    const paint = lastPaint();
+    const tip = paint.findIndex((call) => call.name === "lineTo" && call.args.join() === "60,40");
+    const angle = Math.atan2(40 - 10, 60 - 10);
+    const wings = [angle - Math.PI / 6, angle + Math.PI / 6].map((a) => [
+      60 - 12 * Math.cos(a),
+      40 - 12 * Math.sin(a),
+    ]);
+    const wingAt = (point: number[]) =>
+      paint.findIndex(
+        (call) =>
+          call.name === "lineTo" &&
+          Math.abs(Number(call.args[0]) - point[0]) <= 0.5 &&
+          Math.abs(Number(call.args[1]) - point[1]) <= 0.5,
+      );
+    const fill = paint.findIndex((call) => call.name === "fill");
+
+    expect(tip).toBeGreaterThan(-1);
+    expect(wingAt(wings[0])).toBeGreaterThan(tip);
+    expect(wingAt(wings[1])).toBeGreaterThan(tip);
+    expect(fill).toBeGreaterThan(Math.max(wingAt(wings[0]), wingAt(wings[1])));
+  });
+
   it("crops the bitmap that is sent, and undo restores it", async () => {
     const { ref, canvas, user } = await renderPane();
     await user.click(tool(defaultLabels.crop));

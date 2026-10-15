@@ -6,6 +6,7 @@ import {
   BUG_REPORT_PARTS,
   BugReportButton,
   BugReportDialog,
+  ScreenshotEditor,
   defaultLabels,
   type BugReportClassNames,
 } from "./index.js";
@@ -142,6 +143,13 @@ describe("bugkit theme", () => {
     expect(rule(':where([data-bugkit="primary-button"][aria-disabled="true"])')).toContain(
       "opacity: 0.6;",
     );
+  });
+
+  it("lays the editor out in layer bugkit, full screen and with a scrolling toolbar", () => {
+    render(<ScreenshotEditor image="data:image/png;base64,AAAA" />);
+
+    expect(rule(':where([data-bugkit="editor"][data-expanded="true"])')).toContain("position: fixed;");
+    expect(rule(':where([data-bugkit="editor"] [data-bugkit="toolbar"])')).toContain("overflow-x: auto;");
   });
 
   it("gives the launcher and its dialog the app's classes and the nonce", async () => {

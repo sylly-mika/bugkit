@@ -22,6 +22,7 @@ describe("package entry", () => {
       "BugReportButton",
       "BugReportDialog",
       "SUMMARY_LIMIT",
+      "ScreenshotEditor",
       "buildBugReportForm",
       "defaultLabels",
     ]);

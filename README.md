@@ -165,6 +165,39 @@ The package exports `BugReportButton`, `BugReportDialog`, `defaultLabels`,
 `BugReportSubmit`, and the styling types `BugReportPart` and
 `BugReportClassNames` with the part list `BUG_REPORT_PARTS`.
 
+## npm: the screenshot editor
+
+`ScreenshotEditor` is the report dialog's screenshot editor as a standalone component. It takes `image` (a `data:` or `blob:` URL) and returns the edited PNG from its ref's `toBlob()`; toolbar, zoom, crop, undo/redo and full screen as in the dialog. It never uploads. Pass a `data:` or `blob:` URL: a cross-origin image taints the canvas and `toBlob()` then resolves `null`.
+
+| Prop | Type | Meaning |
+| --- | --- | --- |
+| `image` | `string` | The screenshot, a `data:` or `blob:` URL. |
+| `labels` | `BugReportLabelOverrides` | Overrides for the editor's labels. |
+| `classNames` | `BugReportClassNames` | Classes for the parts, as for the dialog. |
+| `nonce` | `string` | CSP nonce for the one `<style>` element bugkit adds to `<head>`. |
+| `onMarkupChange` | `(marked: boolean) => void` | Called when the markup starts or stops changing. |
+
+The ref is a `ScreenshotEditorHandle`: `toBlob(): Promise<Blob | null>`.
+
+```tsx
+import { useRef } from "react";
+import { ScreenshotEditor, type ScreenshotEditorHandle } from "@sylly-mika/bugkit";
+
+export function Annotate({ image, onSave }: { image: string; onSave: (png: Blob) => void }) {
+  const ref = useRef<ScreenshotEditorHandle>(null);
+  const save = async () => {
+    const png = await ref.current?.toBlob();
+    if (png) onSave(png);
+  };
+  return (
+    <>
+      <ScreenshotEditor ref={ref} image={image} />
+      <button type="button" onClick={save}>Save</button>
+    </>
+  );
+}
+```
+
 ## Next.js
 
 Two entries serve a Next.js app: `@sylly-mika/bugkit/next` exports the client

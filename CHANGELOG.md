@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.0
+
+- `ScreenshotEditor`: the report dialog's screenshot editor as a standalone component. It takes `image` (a `data:` or `blob:` URL) and returns the edited PNG from its ref's `toBlob()`; toolbar, zoom, crop, undo/redo and full screen as in the dialog. New part `editor`.
+- Nothing is removed.
+
 ## v0.3.0
 
 - Styling: the components mark each element with a part (`BUG_REPORT_PARTS`).
