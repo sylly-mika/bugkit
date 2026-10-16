@@ -375,6 +375,50 @@ value of a query or form pair whose name holds `token`, `key`, `secret`,
 `password`, `code` or `session` becomes `[redacted]`. Messages are cut to 500
 characters, stacks to 1500.
 
+## Read a minified stack trace
+
+A stack trace from a production build points into minified chunks. The Go
+package `github.com/sylly-mika/bugkit/sourcemap` maps each frame back to its
+source file, line and column, offline, from the source maps of the same
+build. It reads source map v3 files, including index maps with `sections`;
+a section that points to a `url` is refused. It uses the standard library
+only.
+
+Keep the maps off the public site, and rebuild the reported version when you
+need them. Put each map at its script's URL path plus `.map`: the script
+`https://shop.example/_next/static/chunks/app.js` needs
+`sourcemaps/_next/static/chunks/app.js.map`.
+
+```sh
+go install github.com/sylly-mika/bugkit/cmd/bugkit-symbolicate@v0.6.0
+bugkit-symbolicate -maps sourcemaps stack.txt
+bugkit-symbolicate -maps sourcemaps < stack.txt
+```
+
+It reads V8 frames (`at f (URL:line:column)`, as Chrome and Edge print them)
+and Firefox and Safari frames (`f@URL:line:column`). In each line it takes
+the last `URL:line:column`, ignores the URL's query, and appends the source
+position with the function name when the map has one. Every other line is
+printed unchanged, as is a line whose column was cut short (ending in `…`).
+
+```
+    at greet (https://shop.example/_next/static/chunks/app.js?v=3:1:15)    => src/a.ts:3:5 greet
+main@https://shop.example/_next/static/chunks/app.js:3:20    => src/a.ts:5:3
+```
+
+The command exits 2 on a usage error and 1 when it cannot read `FILE`.
+
+From Go, `Symbolicate` takes any `Loader`, for example one that reads maps
+from your own store. It loads each script once per call.
+
+```go
+out := sourcemap.Symbolicate(stack, sourcemap.DirLoader("sourcemaps"))
+```
+
+`DirLoader(dir)` reads `dir/<URL path>.map` and refuses a path holding `..`.
+For a single position, use `sourcemap.Parse` and `(*Map).Lookup(line,
+column)`; both take and return 1-based lines and columns.
+
 ## Configuration reference
 
 ### Go: `bugkit.Config`

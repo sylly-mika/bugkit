@@ -1,7 +1,10 @@
 package tests
 
 import (
+	"bytes"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -140,5 +143,116 @@ func TestSymbolicateDirLoaderStaysInsideTheDirectory(t *testing.T) {
 	}
 	if string(data) != symbolicateAppMap {
 		t.Errorf("control: got %q, want the app map", data)
+	}
+}
+
+func buildSymbolicateCLI(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "bugkit-symbolicate")
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/bugkit-symbolicate")
+	cmd.Dir = ".."
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	return bin
+}
+
+func runSymbolicateCLI(t *testing.T, bin, stdin string, args ...string) (stdout, stderr string, code int) {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Stdin = strings.NewReader(stdin)
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatal(err)
+		}
+		code = exitErr.ExitCode()
+	}
+	return out.String(), errBuf.String(), code
+}
+
+func TestSymbolicateCLIReadsAFile(t *testing.T) {
+	bin := buildSymbolicateCLI(t)
+	file, err := filepath.Abs(filepath.Join("testdata", "sourcemap", "stack-v8.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, code := runSymbolicateCLI(t, bin, "", "-maps", symbolicateMaps(t), file)
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr %q", code, stderr)
+	}
+	if want := readStack(t, "stack-v8-want.txt"); stdout != want {
+		t.Errorf("got\n%s\nwant\n%s", stdout, want)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestSymbolicateCLIReadsStdin(t *testing.T) {
+	bin := buildSymbolicateCLI(t)
+	stdout, stderr, code := runSymbolicateCLI(t, bin, readStack(t, "stack-firefox.txt"), "-maps", symbolicateMaps(t))
+	if code != 0 {
+		t.Errorf("exit code = %d, want 0; stderr %q", code, stderr)
+	}
+	if want := readStack(t, "stack-firefox-want.txt"); stdout != want {
+		t.Errorf("got\n%s\nwant\n%s", stdout, want)
+	}
+	if stderr != "" {
+		t.Errorf("stderr = %q, want empty", stderr)
+	}
+}
+
+func TestSymbolicateCLIUsageErrorsExit2(t *testing.T) {
+	bin := buildSymbolicateCLI(t)
+	maps := symbolicateMaps(t)
+	file, err := filepath.Abs(filepath.Join("testdata", "sourcemap", "stack-v8.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	regular := filepath.Join(maps, "_next", "static", "chunks", "app.js.map")
+	usage := "usage: bugkit-symbolicate -maps DIR [FILE]"
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"no args", nil, usage},
+		{"file without maps", []string{file}, usage},
+		{"two files", []string{"-maps", maps, file, file}, usage},
+		{"unknown flag", []string{"-x"}, usage},
+		{"maps is a file", []string{"-maps", regular}, "bugkit-symbolicate: -maps must name a directory"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			stdout, stderr, code := runSymbolicateCLI(t, bin, "", c.args...)
+			if code != 2 {
+				t.Errorf("exit code = %d, want 2", code)
+			}
+			if stdout != "" {
+				t.Errorf("stdout = %q, want empty", stdout)
+			}
+			if !strings.Contains(stderr, c.want) {
+				t.Errorf("stderr = %q, want it to contain %q", stderr, c.want)
+			}
+		})
+	}
+}
+
+func TestSymbolicateCLIUnreadableFileExits1(t *testing.T) {
+	bin := buildSymbolicateCLI(t)
+	maps := symbolicateMaps(t)
+	stdout, stderr, code := runSymbolicateCLI(t, bin, "", "-maps", maps, filepath.Join(maps, "nope.txt"))
+	if code != 1 {
+		t.Errorf("exit code = %d, want 1", code)
+	}
+	if stdout != "" {
+		t.Errorf("stdout = %q, want empty", stdout)
+	}
+	if !strings.HasPrefix(stderr, "bugkit-symbolicate: ") {
+		t.Errorf("stderr = %q, want prefix %q", stderr, "bugkit-symbolicate: ")
 	}
 }
