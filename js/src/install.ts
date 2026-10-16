@@ -94,3 +94,31 @@ export function installDiagnostics(
   if (options?.breadcrumbs !== false) undo.push(installBreadcrumbs(d));
   return () => [...undo].reverse().forEach((u) => u());
 }
+
+/** Wraps a fetch so that each call records its method, path, status, duration and request id. */
+export function withDiagnostics(fetcher: typeof fetch, d: Diagnostics): typeof fetch {
+  const wrapped = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const { method, url } = requestLine(input, init);
+    const started = performance.now();
+    const record = (status: number, requestId: string | null) =>
+      quietly(() =>
+        d.recordApiCall({ method, url, status, durationMs: Math.round(performance.now() - started), requestId }),
+      );
+    let response: Response;
+    try {
+      response = await fetcher(input, init);
+    } catch (error) {
+      record(0, null);
+      throw error;
+    }
+    record(response.status, response.headers.get("x-request-id"));
+    return response;
+  };
+  return wrapped;
+}
+
+function requestLine(input: RequestInfo | URL, init?: RequestInit): { method: string; url: string } {
+  if (typeof input === "string") return { method: init?.method ?? "GET", url: input };
+  if (input instanceof URL) return { method: init?.method ?? "GET", url: input.href };
+  return { method: init?.method ?? input.method, url: input.url };
+}
