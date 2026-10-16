@@ -1,0 +1,5 @@
+greet@https://shop.example/_next/static/chunks/app.js:1:15
+main@https://shop.example/_next/static/chunks/app.js:3:20
+run/<@https://shop.example/_next/static/chunks/app/(shop)/chunk.js:2:6
+@https://shop.example/_next/static/chunks/app/(shop)/chunk.js:3:2
+global code@https://shop.example/_next/static/chunks/app.js:1:21

@@ -1,0 +1,8 @@
+TypeError: Cannot read properties of undefined (reading 'id')
+    at greet (https://shop.example/_next/static/chunks/app.js?v=3:1:15)    => src/a.ts:3:5 greet
+    at main (https://shop.example/_next/static/chunks/app.js:3:5)    => src/b.ts:10:1 main
+    at https://shop.example/_next/static/chunks/app/(shop)/chunk.js:2:9    => two.ts:7:3 x
+    at async run (https://shop.example/_next/static/chunks/app/(shop)/chunk.js:1:1)    => one.ts:1:1
+    at eval (eval at load (https://shop.example/_next/static/chunks/app.js:1:15), <anonymous>:1:1)
+    at https://shop.example/_next/static/chunks/missing.js:1:1
+    at done (https://shop.example/_next/static/chunks/missing.js:2:2)
