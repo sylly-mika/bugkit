@@ -17,6 +17,10 @@ halves that you install separately:
 For a Next.js app without a Go server, `@sylly-mika/bugkit/server` gives a
 route that does the same checks in TypeScript.
 
+`@sylly-mika/bugkit/diagnostics` records what happened before a report
+(failed API calls, errors with their stack, console errors and warnings,
+routes and clicks), scrubbed, for the dialog's `diagnostics` prop.
+
 ```
 browser       BugReportButton -> POST multipart form -> your route
 your server   bugkit.Handler: Who -> Sink set? -> rate limit -> form checks -> Sink
@@ -47,7 +51,7 @@ GitHub release, and that is the install source. The package is ESM, with
 types in `dist/`.
 
 ```sh
-npm install https://github.com/sylly-mika/bugkit/releases/download/v0.5.0/sylly-mika-bugkit-0.5.0.tgz html-to-image@^1.11.13
+npm install https://github.com/sylly-mika/bugkit/releases/download/v0.6.0/sylly-mika-bugkit-0.6.0.tgz html-to-image@^1.11.13
 ```
 
 Tags up to v0.4.0 install from git instead: `github:sylly-mika/bugkit#v0.4.0`.
@@ -315,6 +319,106 @@ export function Annotate({ image, onSave }: { image: string; onSave: (png: Blob)
 Other props: `labels`, `classNames`, `nonce`, and
 `onMarkupChange(marked: boolean)`.
 
+## Record diagnostics
+
+`@sylly-mika/bugkit/diagnostics` keeps a short, scrubbed timeline of what
+happened in the tab, for the report's `diagnostics` part. It holds no React
+code and has no dependency. In a module of your app:
+
+```ts
+import { createDiagnostics, withDiagnostics } from "@sylly-mika/bugkit/diagnostics";
+
+export const diagnostics = createDiagnostics();
+export const apiFetch = withDiagnostics(fetch, diagnostics);
+```
+
+In your root client component:
+
+```tsx
+import { installDiagnostics } from "@sylly-mika/bugkit/diagnostics";
+
+useEffect(() => installDiagnostics(diagnostics), []);
+
+<BugReport version={process.env.NEXT_PUBLIC_BUILD_SHA} diagnostics={() => diagnostics.snapshot()} />
+```
+
+`createDiagnostics()` touches no browser API, so a module may create it at
+import time, also during a server render. Call `installDiagnostics` in the
+browser only; it returns the function that removes what it installed.
+`installDiagnostics(d, { errors: false })` leaves a part out (`errors`,
+`console`, `breadcrumbs`); each part also has its own installer.
+
+What it records:
+
+- API calls made through `withDiagnostics` (or passed to `recordApiCall`):
+  method, path (no origin, query or fragment), status (`0` for a network
+  failure), duration and the `x-request-id` response header. Never a body or
+  any other header.
+- Uncaught errors and unhandled rejections, with the first 15 stack lines.
+- `console.error` and `console.warn` calls.
+- Route changes (`pushState`, `replaceState`, `popstate`) and clicks: the
+  element's selector and its `aria-label`, `title` or text, cut to 60
+  characters. Inputs, selects, textareas, editable elements and anything
+  inside `data-diagnostics-private` record no label. Clicks inside the report
+  button (`data-bugreport-launcher`) are not recorded. No value is read.
+
+It keeps the newest 20 failed calls (status `0` or 400 and up) and errors, the
+newest 20 console calls, and the newest 50 other calls, routes and clicks.
+`snapshot()` merges them, oldest first.
+
+Before anything is stored, the current value of every `input` and `textarea`
+on the page becomes `[input]`; `Bearer` credentials become `Bearer [redacted]`;
+tokens with an `rvl_`, `rvs_` or `itk_` prefix, JWTs and runs of 32 or more
+characters mixing letters and digits become `[token]`; e-mail addresses become
+`[email]`; the
+value of a query or form pair whose name holds `token`, `key`, `secret`,
+`password`, `code` or `session` becomes `[redacted]`. Messages are cut to 500
+characters, stacks to 1500.
+
+## Read a minified stack trace
+
+A stack trace from a production build points into minified chunks. The Go
+package `github.com/sylly-mika/bugkit/sourcemap` maps each frame back to its
+source file, line and column, offline, from the source maps of the same
+build. It reads source map v3 files, including index maps with `sections`;
+a section that points to a `url` is refused. It uses the standard library
+only.
+
+Keep the maps off the public site, and rebuild the reported version when you
+need them. Put each map at its script's URL path plus `.map`: the script
+`https://shop.example/_next/static/chunks/app.js` needs
+`sourcemaps/_next/static/chunks/app.js.map`.
+
+```sh
+go install github.com/sylly-mika/bugkit/cmd/bugkit-symbolicate@v0.6.0
+bugkit-symbolicate -maps sourcemaps stack.txt
+bugkit-symbolicate -maps sourcemaps < stack.txt
+```
+
+It reads V8 frames (`at f (URL:line:column)`, as Chrome and Edge print them)
+and Firefox and Safari frames (`f@URL:line:column`). In each line it takes
+the last `URL:line:column`, ignores the URL's query, and appends the source
+position with the function name when the map has one. Every other line is
+printed unchanged, as is a line whose column was cut short (ending in `…`).
+
+```
+    at greet (https://shop.example/_next/static/chunks/app.js?v=3:1:15)    => src/a.ts:3:5 greet
+main@https://shop.example/_next/static/chunks/app.js:3:20    => src/a.ts:5:3
+```
+
+The command exits 2 on a usage error and 1 when it cannot read `FILE`.
+
+From Go, `Symbolicate` takes any `Loader`, for example one that reads maps
+from your own store. It loads each script once per call.
+
+```go
+out := sourcemap.Symbolicate(stack, sourcemap.DirLoader("sourcemaps"))
+```
+
+`DirLoader(dir)` reads `dir/<URL path>.map` and refuses a path holding `..`.
+For a single position, use `sourcemap.Parse` and `(*Map).Lookup(line,
+column)`; both take and return 1-based lines and columns.
+
 ## Configuration reference
 
 ### Go: `bugkit.Config`
@@ -379,6 +483,21 @@ All `BugReportButton` props except `submit`, plus:
 | `intakeKey` | `string` | Intake key. Empty answers 503. |
 | `reporter` | `(request) => BugReporter \| null`, or a promise of it | Signed-in user `{ name, email }`, or `null` for 401. |
 | `limit` | `(request, reporter) => number \| null`, or a promise of it | Optional. Seconds to wait (429), or `null` to allow. |
+| `allowedOrigins` | `readonly string[]` | Optional. When set, a request whose `Origin` header is absent or not exactly one entry gets 403 `This origin may not file bug reports.` before `reporter` runs. Unset: no check. |
+
+### npm: `@sylly-mika/bugkit/diagnostics`
+
+| Name | Meaning |
+|---|---|
+| `createDiagnostics(options?: { now?: () => Date })` | A new, empty `Diagnostics`. |
+| `Diagnostics` | `recordApiCall(call)`, `recordError(error, source?)`, `recordConsole(level, args)`, `recordRoute(url)`, `recordClick(element)`, `snapshot()`, `clear()`. |
+| `ApiCallInput` | `{ method, url, status, durationMs, requestId? }`, the argument of `recordApiCall`. |
+| `TimelineEntry` | `ApiCallEntry`, `ErrorEntry`, `ConsoleEntry`, `RouteEntry` or `ClickEntry`; each has a `type` and an ISO 8601 `at`. |
+| `installDiagnostics(d, options?)` | Installs the three captures below; returns the uninstaller. |
+| `installErrorCapture(d)`, `installConsoleCapture(d)`, `installBreadcrumbs(d)` | One capture each; each returns its uninstaller. |
+| `withDiagnostics(fetcher, d)` | A `fetch` that records each call in `d`. |
+| `scrubText(text, options?)`, `scrubPath(url)`, `cutStack(stack)` | The scrubbing of [Record diagnostics](#record-diagnostics), for your own text. |
+| `PROBLEMS_CAPACITY`, `CONSOLE_CAPACITY`, `TRAIL_CAPACITY`, `TEXT_LIMIT`, `LABEL_LIMIT`, `STACK_LIMIT_LINES`, `STACK_LIMIT_CHARS` | 20, 20, 50, 500, 60, 15, 1500. |
 
 ### Form parts
 
@@ -473,6 +592,9 @@ error text and the reporter's `ID`.
 
 See `CHANGELOG.md` for every change.
 
+- **To v0.6.0:** no change needed. The new code is in the `./diagnostics`
+  subpath and `allowedOrigins` is optional. Change your install URL as in
+  [Install](#install).
 - **To v0.5.0:** no API change in either package. The npm package now
   installs from the `.tgz` attached to the GitHub release, not from the git
   tag, because `dist/` is no longer committed. Change your install URL as in

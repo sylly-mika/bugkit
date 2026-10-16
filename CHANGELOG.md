@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.6.0
+
+- npm: new subpath `@sylly-mika/bugkit/diagnostics`. `createDiagnostics()`
+  records failed API calls and errors (newest 20), `console.error` and
+  `console.warn` (newest 20), and other calls, routes and clicks (newest 50);
+  `snapshot()` merges them by time for the dialog's `diagnostics` prop.
+  `installDiagnostics()` installs the error (with up to 15 stack lines),
+  console and breadcrumb capture; `withDiagnostics()` wraps `fetch`.
+  `scrubText`, `scrubPath` and `cutStack` redact input values, tokens,
+  e-mail addresses and secret query values before anything is stored.
+- npm: the copy text shown after a failed send renders the new entries.
+- npm: `createBugReportRoute` takes an optional `allowedOrigins`. When set, a
+  request whose `Origin` is absent or not listed gets 403 before `reporter`
+  runs.
+- Go: new package `github.com/sylly-mika/bugkit/sourcemap` and the
+  `bugkit-symbolicate` command, which resolve a minified stack against the
+  build's source maps offline.
+- Nothing is removed. `.`, `./next`, `./server` and every Go v0.5.0 name are
+  unchanged.
+
 ## v0.5.0
 
 - The npm package lives in `js/`. The Go module stays at the root; its import

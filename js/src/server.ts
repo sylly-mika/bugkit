@@ -7,6 +7,8 @@ export type BugReportRouteOptions = {
   intakeKey: string;
   reporter: (request: Request) => BugReporter | null | Promise<BugReporter | null>;
   limit?: (request: Request, reporter: BugReporter) => number | null | Promise<number | null>;
+  /** Origins allowed to file reports, each compared exactly with the request's Origin header; when set, a request with any other Origin, or none, gets 403. */
+  allowedOrigins?: readonly string[];
 };
 
 /**
@@ -46,10 +48,12 @@ const BUG_IMPACTS = ["blocks", "workaround", "cosmetic"];
 const NOT_CONFIGURED = "Bug reporting is not configured on this server.";
 const FILING_FAILED = "The report could not be filed. Copy it and try again.";
 const BODY_TOO_LARGE = "The report is larger than 6 MiB.";
+const ORIGIN_REJECTED = "This origin may not file bug reports.";
 
 const TITLES: Record<number, string> = {
   400: "Bad Request",
   401: "Unauthorized",
+  403: "Forbidden",
   413: "Request Entity Too Large",
   422: "Unprocessable Entity",
   429: "Too Many Requests",
@@ -58,6 +62,9 @@ const TITLES: Record<number, string> = {
 };
 
 async function handle(options: BugReportRouteOptions, request: Request): Promise<Response> {
+  if (options.allowedOrigins !== undefined && !originAllowed(options.allowedOrigins, request)) {
+    throw new Refusal(403, ORIGIN_REJECTED);
+  }
   const reporter = await options.reporter(request);
   if (!reporter) {
     throw new Refusal(401, "Not authenticated.");
@@ -75,6 +82,11 @@ async function handle(options: BugReportRouteOptions, request: Request): Promise
   const form = await readForm(request);
   const checked = await checkFields(form, request);
   return relay(options, intakeForm(checked, reporter));
+}
+
+function originAllowed(allowed: readonly string[], request: Request): boolean {
+  const origin = request.headers.get("origin");
+  return origin !== null && allowed.includes(origin);
 }
 
 type Checked = {

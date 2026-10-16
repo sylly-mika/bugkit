@@ -23,8 +23,11 @@ const REQUIRED = [
   "dist/next.d.ts",
   "dist/server.js",
   "dist/server.d.ts",
+  "dist/diagnostics-entry.js",
+  "dist/diagnostics-entry.d.ts",
 ];
 const EXPORTS = "BUG_KINDS,BUG_REPORT_PARTS,BugReportButton,BugReportDialog,SUMMARY_LIMIT,ScreenshotEditor,buildBugReportForm,defaultLabels";
+const DIAGNOSTICS_EXPORTS = "CONSOLE_CAPACITY,LABEL_LIMIT,PROBLEMS_CAPACITY,STACK_LIMIT_CHARS,STACK_LIMIT_LINES,TEXT_LIMIT,TRAIL_CAPACITY,createDiagnostics,cutStack,installBreadcrumbs,installConsoleCapture,installDiagnostics,installErrorCapture,scrubPath,scrubText,withDiagnostics";
 const LINKED = ["react", "react-dom", "html-to-image", "@types/react", "@types/react-dom"];
 
 const PROBE_MJS = `import * as kit from "@sylly-mika/bugkit";
@@ -34,6 +37,11 @@ import server from "react-dom/server";
 export const names = Object.keys(kit).sort();
 export const nextNames = Object.keys(await import("@sylly-mika/bugkit/next")).sort();
 export const serverNames = Object.keys(await import("@sylly-mika/bugkit/server")).sort();
+const diagnostics = await import("@sylly-mika/bugkit/diagnostics");
+export const diagnosticsNames = Object.keys(diagnostics).sort();
+const recorder = diagnostics.createDiagnostics({ now: () => new Date("2026-01-01T00:00:00.000Z") });
+recorder.recordApiCall({ method: "get", url: "https://api.example.test/x?token=probe-value", status: 500, durationMs: 120, requestId: "req-1" });
+export const diagnosticsSnapshot = recorder.snapshot();
 export const html = server.renderToString(
   react.createElement(kit.BugReportButton, {
     submit: async () => ({ id: "00000000-0000-0000-0000-000000000000", number: 1 }),
@@ -64,6 +72,13 @@ import { BugReport } from "@sylly-mika/bugkit/next";
 import { createBugReportRoute } from "@sylly-mika/bugkit/server";
 export const r: (q: Request) => Promise<Response> = createBugReportRoute({ intakeUrl: "u", intakeKey: "k", reporter: () => null });
 export const b = BugReport;
+import { createDiagnostics, withDiagnostics } from "@sylly-mika/bugkit/diagnostics";
+import type { ApiCallInput, Diagnostics, TimelineEntry } from "@sylly-mika/bugkit/diagnostics";
+const recorder: Diagnostics = createDiagnostics({ now: () => new Date(0) });
+const call: ApiCallInput = { method: "GET", url: "/x", status: 0, durationMs: 1, requestId: null };
+recorder.recordApiCall(call);
+export const timeline: TimelineEntry[] = recorder.snapshot();
+export const wrapped: typeof fetch = withDiagnostics(fetch, recorder);
 `;
 
 function checkScripts() {
@@ -112,18 +127,20 @@ async function checkEntries(app) {
   if (!readFileSync(join(pkgDir, "dist/next.js"), "utf8").startsWith('"use client";')) {
     failures.push('dist/next.js does not start with "use client"');
   }
-  const seen = new Set();
-  const queue = ["dist/server.js"];
-  while (queue.length > 0) {
-    const file = queue.shift();
-    if (seen.has(file)) continue;
-    seen.add(file);
-    const source = readFileSync(join(pkgDir, file), "utf8");
-    for (const [, spec] of source.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)) {
-      if (/^(react|react-dom|html-to-image)(\/|$)/.test(spec)) {
-        failures.push(`dist/server.js reaches ${spec} through ${file}`);
-      } else if (spec.startsWith("./")) {
-        queue.push(posix.join(posix.dirname(file), spec));
+  for (const start of ["dist/server.js", "dist/diagnostics-entry.js"]) {
+    const seen = new Set();
+    const queue = [start];
+    while (queue.length > 0) {
+      const file = queue.shift();
+      if (seen.has(file)) continue;
+      seen.add(file);
+      const source = readFileSync(join(pkgDir, file), "utf8");
+      for (const [, spec] of source.matchAll(/(?:from|import)\s*["']([^"']+)["']/g)) {
+        if (/^(react|react-dom|html-to-image)(\/|$)/.test(spec)) {
+          failures.push(`${start} reaches ${spec} through ${file}`);
+        } else if (spec.startsWith("./")) {
+          queue.push(posix.join(posix.dirname(file), spec));
+        }
       }
     }
   }
@@ -136,6 +153,21 @@ async function checkRuntime(app) {
     if (probe.nextNames.join(",") !== "BugReport") failures.push(`./next exports are ${probe.nextNames.join(",")}`);
     if (probe.serverNames.join(",") !== "createBugReportRoute") {
       failures.push(`./server exports are ${probe.serverNames.join(",")}`);
+    }
+    if (probe.diagnosticsNames.join(",") !== DIAGNOSTICS_EXPORTS) {
+      failures.push(`./diagnostics exports are ${probe.diagnosticsNames.join(",")}`);
+    }
+    const [entry] = probe.diagnosticsSnapshot;
+    if (
+      probe.diagnosticsSnapshot.length !== 1 ||
+      entry.type !== "api" ||
+      entry.method !== "GET" ||
+      entry.path !== "/x" ||
+      entry.status !== 500 ||
+      entry.request_id !== "req-1" ||
+      JSON.stringify(probe.diagnosticsSnapshot).includes("probe-value")
+    ) {
+      failures.push("./diagnostics did not record a scrubbed API call under Node");
     }
     if (!probe.html.includes("<button")) failures.push("BugReportButton rendered no button");
   } catch (err) {
