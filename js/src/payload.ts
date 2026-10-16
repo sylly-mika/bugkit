@@ -1,3 +1,5 @@
+import type { TimelineEntry } from "./timeline.js";
+
 export const BUG_IMPACTS = ["blocks", "workaround", "cosmetic"] as const;
 
 export type BugImpact = (typeof BUG_IMPACTS)[number];
@@ -124,17 +126,44 @@ export function buildBugReportForm(payload: BugReportPayload): FormData {
   return form;
 }
 
-/** One line of the copied text for a diagnostics entry, or null when it cannot be written as JSON. */
-function diagnosticLine(entry: unknown): string | null {
+const TIMELINE_TYPES: ReadonlySet<unknown> = new Set<unknown>(["api", "error", "console", "route", "click"]);
+
+function isTimelineEntry(entry: unknown): entry is TimelineEntry {
+  return typeof entry === "object" && entry !== null && TIMELINE_TYPES.has((entry as { type?: unknown }).type);
+}
+
+function timelineLines(e: TimelineEntry): string[] {
+  switch (e.type) {
+    case "api": {
+      const id = typeof e.request_id === "string" && e.request_id !== "" ? ` ${e.request_id}` : "";
+      return [`  ${e.at} ${e.method} ${e.path} ${e.status} ${e.duration_ms} ms${id}`];
+    }
+    case "error": {
+      const stack = typeof e.stack === "string" ? e.stack.split("\n") : [];
+      const lines = stack.map((line) => line.trim()).filter((line) => line !== "");
+      return [`  ${e.at} ${e.message} (${e.source})`, ...lines.map((line) => `    ${line}`)];
+    }
+    case "console":
+      return [`  ${e.at} console.${e.level} ${e.message}`];
+    case "route":
+      return [`  ${e.at} route ${e.path}`];
+    case "click":
+      return [`  ${e.at} click ${e.selector} "${e.label}"`];
+  }
+}
+
+function diagnosticLines(entry: unknown): string[] | null {
+  if (isTimelineEntry(entry)) return timelineLines(entry);
   if (typeof entry === "object" && entry !== null && "status" in entry) {
     const e = entry as Record<string, unknown>;
-    return `  ${e.at} ${e.method} ${e.path} ${e.status} ${e.request_id}`;
+    return [`  ${e.at} ${e.method} ${e.path} ${e.status} ${e.request_id}`];
   }
   if (typeof entry === "object" && entry !== null && "message" in entry) {
     const e = entry as Record<string, unknown>;
-    return `  ${e.at} ${e.message} (${e.source})`;
+    return [`  ${e.at} ${e.message} (${e.source})`];
   }
-  return jsonLine(entry);
+  const json = jsonLine(entry);
+  return json === null ? null : [json];
 }
 
 function jsonLine(value: unknown): string | null {
@@ -176,8 +205,9 @@ export function reportAsText(payload: BugReportPayload): string {
     if (diagnostics.length > 0) {
       lines.push("", "Diagnostics:");
       for (const entry of diagnostics) {
-        const line = diagnosticLine(entry);
-        lines.push(line ?? "  [entry could not be written as JSON]");
+        const entryLines = diagnosticLines(entry);
+        if (entryLines === null) lines.push("  [entry could not be written as JSON]");
+        else lines.push(...entryLines);
       }
     }
   } else if (diagnostics !== null && diagnostics !== undefined) {
