@@ -9,6 +9,7 @@ export type {
   TimelineEntry,
   ApiCallInput,
   Diagnostics,
+  PersistOptions,
 } from "./timeline.js";
 export {
   installErrorCapture,
