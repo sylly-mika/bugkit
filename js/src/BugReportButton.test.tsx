@@ -196,6 +196,17 @@ describe("BugReportButton", () => {
     expect(screen.getByText(defaultLabels.captureFallbackHint)).toBeInTheDocument();
   });
 
+  it("passes the host's choice to leave out the technical details", async () => {
+    const user = userEvent.setup();
+    toPngMock.mockRejectedValue(new Error("tainted"));
+
+    render(<BugReportButton submit={vi.fn()} getContext={getContext} technicalDetails={false} />);
+    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+
+    await screen.findByRole("dialog");
+    expect(screen.queryByRole("button", { name: defaultLabels.technicalTitle })).toBeNull();
+  });
+
   it("closes on cancel and captures afresh on the next open", async () => {
     const user = userEvent.setup();
     toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");

@@ -35,6 +35,8 @@ export type BugReportButtonProps = {
   classNames?: BugReportClassNames;
   /** CSP nonce for the one `<style>` element bugkit adds to `<head>`. */
   nonce?: string;
+  /** Shows the Technical details disclosure in the dialog (default true); the details are sent either way. */
+  technicalDetails?: boolean;
 };
 
 type Session = {
@@ -55,6 +57,7 @@ export function BugReportButton(props: BugReportButtonProps) {
     onOpenChange,
     classNames,
     nonce,
+    technicalDetails,
   } = props;
   const labels: BugReportLabels = mergeLabels(props.labels);
   const [session, setSession] = useState<Session | null>(null);
@@ -135,6 +138,7 @@ export function BugReportButton(props: BugReportButtonProps) {
           onClose={close}
           classNames={classNames}
           nonce={nonce}
+          technicalDetails={technicalDetails}
         />
       ) : null}
     </>
