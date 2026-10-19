@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.7.0
+
+- npm: `BugReportButton` and `BugReport` take `technicalDetails`. With
+  `false`, the dialog leaves out the Technical details disclosure; the details
+  are still sent.
+- Nothing is removed. Every v0.6.0 name and default is unchanged.
+
 ## v0.6.0
 
 - npm: new subpath `@sylly-mika/bugkit/diagnostics`. `createDiagnostics()`

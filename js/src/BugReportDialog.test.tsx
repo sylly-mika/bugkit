@@ -282,6 +282,14 @@ describe("BugReportDialog", () => {
     expect(note).toContainElement(screen.getByText("sensitiveBody"));
   });
 
+  it("leaves the technical details out when the host turns them off", () => {
+    renderDialog({ technicalDetails: false });
+
+    expect(screen.queryByRole("button", { name: "technicalTitle" })).toBeNull();
+    expect(screen.queryByText("technicalHint")).toBeNull();
+    expect(screen.getByRole("button", { name: "sharedTitle" })).toBeInTheDocument();
+  });
+
   it("refuses to send an empty description", async () => {
     const user = userEvent.setup();
     const { submit } = renderDialog();

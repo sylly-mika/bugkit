@@ -463,6 +463,7 @@ output shows it as `<redacted>`. The client never follows a redirect.
 | `onOpenChange` | `(open: boolean) => void` | none | Called when the dialog opens or closes. |
 | `classNames` | `BugReportClassNames` | none | Classes per part from `BUG_REPORT_PARTS`. |
 | `nonce` | `string` | none | CSP nonce for bugkit's `<style>` element. |
+| `technicalDetails` | `boolean` | `true` | Shows the Technical details disclosure; the details are sent either way. |
 
 ### npm: `BugReport` (`@sylly-mika/bugkit/next`)
 

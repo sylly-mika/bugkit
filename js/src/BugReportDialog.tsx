@@ -31,6 +31,8 @@ export type BugReportDialogProps = {
   classNames?: BugReportClassNames;
   /** CSP nonce for the one `<style>` element bugkit adds to `<head>`. */
   nonce?: string;
+  /** Shows the Technical details disclosure (default true); the details are sent either way. */
+  technicalDetails?: boolean;
 };
 
 type Phase =
@@ -76,8 +78,18 @@ function lockBodyScroll(): () => void {
 }
 
 export function BugReportDialog(props: BugReportDialogProps) {
-  const { capture, labels, context, environment, diagnostics, submit, onClose, classNames, nonce } =
-    props;
+  const {
+    capture,
+    labels,
+    context,
+    environment,
+    diagnostics,
+    submit,
+    onClose,
+    classNames,
+    nonce,
+    technicalDetails = true,
+  } = props;
   useBugkitStyles(nonce);
 
   const [restored] = useState<Draft | null>(readDraft);
@@ -496,37 +508,39 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   })}
                 </div>
 
-                <div {...partProps(classNames, "field")}>
-                  <button
-                    type="button"
-                    {...partProps(classNames, "disclosure")}
-                    aria-expanded={technicalOpen}
-                    aria-controls={TECHNICAL_ID}
-                    aria-describedby={TECHNICAL_HINT_ID}
-                    onClick={() => setTechnicalOpen(!technicalOpen)}
-                  >
-                    {labels.technicalTitle}
-                  </button>
-                  <p id={TECHNICAL_HINT_ID} {...partProps(classNames, "muted")}>
-                    {labels.technicalHint}
-                  </p>
-                  <div id={TECHNICAL_ID}>
-                    {technicalOpen ? (
-                      <table {...partProps(classNames, "context-table")}>
-                        <tbody>
-                          {contextRows.map(([key, value]) => (
-                            <tr key={key}>
-                              <th scope="row" {...partProps(classNames, "context-key")}>
-                                {key}
-                              </th>
-                              <td {...partProps(classNames, "context-value")}>{value}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    ) : null}
+                {technicalDetails ? (
+                  <div {...partProps(classNames, "field")}>
+                    <button
+                      type="button"
+                      {...partProps(classNames, "disclosure")}
+                      aria-expanded={technicalOpen}
+                      aria-controls={TECHNICAL_ID}
+                      aria-describedby={TECHNICAL_HINT_ID}
+                      onClick={() => setTechnicalOpen(!technicalOpen)}
+                    >
+                      {labels.technicalTitle}
+                    </button>
+                    <p id={TECHNICAL_HINT_ID} {...partProps(classNames, "muted")}>
+                      {labels.technicalHint}
+                    </p>
+                    <div id={TECHNICAL_ID}>
+                      {technicalOpen ? (
+                        <table {...partProps(classNames, "context-table")}>
+                          <tbody>
+                            {contextRows.map(([key, value]) => (
+                              <tr key={key}>
+                                <th scope="row" {...partProps(classNames, "context-key")}>
+                                  {key}
+                                </th>
+                                <td {...partProps(classNames, "context-value")}>{value}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
+                ) : null}
 
                 <div {...partProps(classNames, "field")}>
                   <button
