@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.8.0
+
+- npm: `createDiagnostics` takes `persist` (`{ key?, maxAgeMs? }`). With it,
+  every entry is also written to the tab's `sessionStorage`, and a new
+  timeline in the same tab starts with the stored entries younger than
+  `maxAgeMs` (default 30 minutes), so the timeline outlives a reload or a
+  login that leaves for another site. `clear()` also removes the stored copy.
+- Nothing is removed. Without `persist`, nothing changes.
+
 ## v0.7.0
 
 - npm: `BugReportButton` and `BugReport` take `technicalDetails`. With

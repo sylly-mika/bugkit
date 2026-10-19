@@ -34,7 +34,8 @@ What bugkit does not do: it does not authenticate users (you supply `Who` or
 rate limiter, in memory. It reads no environment variables and needs no
 database. The Next.js route has no built-in rate limiter. In the browser, the
 dialog keeps an unsent draft in the tab's `sessionStorage` (key
-`bugkit:draft:v1`) until the report is sent or discarded.
+`bugkit:draft:v1`) until the report is sent or discarded. A diagnostics timeline
+created with `persist` is kept there too (see [Record diagnostics](#record-diagnostics)).
 
 Status: pre-1.0. The API may change between minor versions.
 
@@ -51,7 +52,7 @@ GitHub release, and that is the install source. The package is ESM, with
 types in `dist/`.
 
 ```sh
-npm install https://github.com/sylly-mika/bugkit/releases/download/v0.6.0/sylly-mika-bugkit-0.6.0.tgz html-to-image@^1.11.13
+npm install https://github.com/sylly-mika/bugkit/releases/download/v0.8.0/sylly-mika-bugkit-0.8.0.tgz html-to-image@^1.11.13
 ```
 
 Tags up to v0.4.0 install from git instead: `github:sylly-mika/bugkit#v0.4.0`.
@@ -342,7 +343,8 @@ useEffect(() => installDiagnostics(diagnostics), []);
 <BugReport version={process.env.NEXT_PUBLIC_BUILD_SHA} diagnostics={() => diagnostics.snapshot()} />
 ```
 
-`createDiagnostics()` touches no browser API, so a module may create it at
+`createDiagnostics()` touches no browser API other than `sessionStorage` (only
+with `persist`, and only when there is one), so a module may create it at
 import time, also during a server render. Call `installDiagnostics` in the
 browser only; it returns the function that removes what it installed.
 `installDiagnostics(d, { errors: false })` leaves a part out (`errors`,
@@ -365,6 +367,17 @@ What it records:
 It keeps the newest 20 failed calls (status `0` or 400 and up) and errors, the
 newest 20 console calls, and the newest 50 other calls, routes and clicks.
 `snapshot()` merges them, oldest first.
+
+A full page load (a reload, or a login that leaves for another site and comes
+back) runs the page's modules again, and a new timeline starts empty. With
+`createDiagnostics({ persist: {} })`, every entry is also written to the tab's
+`sessionStorage` (key `bugkit:diagnostics:v1`, or `persist.key`), and a new
+timeline in the same tab starts with the stored entries younger than
+`persist.maxAgeMs` (default 30 minutes). A new tab starts empty; a duplicated
+tab starts with a copy. The stored copy outlives a logout in that tab, so
+whoever reports from it next within `maxAgeMs` sends it too. `clear()` also
+removes it. When the storage is full or blocked, the stored copy is lost and
+recording goes on.
 
 Before anything is stored, the current value of every `input` and `textarea`
 on the page becomes `[input]`; `Bearer` credentials become `Bearer [redacted]`;
@@ -490,7 +503,8 @@ All `BugReportButton` props except `submit`, plus:
 
 | Name | Meaning |
 |---|---|
-| `createDiagnostics(options?: { now?: () => Date })` | A new, empty `Diagnostics`. |
+| `createDiagnostics(options?: { now?: () => Date; persist?: PersistOptions })` | A new `Diagnostics`: empty, or with `persist`, holding the tab's stored entries younger than `maxAgeMs`. |
+| `PersistOptions` | `{ key?, maxAgeMs? }`: the `sessionStorage` key (default `bugkit:diagnostics:v1`) and the age in ms past which a stored entry is not restored (default 1800000, 30 minutes). |
 | `Diagnostics` | `recordApiCall(call)`, `recordError(error, source?)`, `recordConsole(level, args)`, `recordRoute(url)`, `recordClick(element)`, `snapshot()`, `clear()`. |
 | `ApiCallInput` | `{ method, url, status, durationMs, requestId? }`, the argument of `recordApiCall`. |
 | `TimelineEntry` | `ApiCallEntry`, `ErrorEntry`, `ConsoleEntry`, `RouteEntry` or `ClickEntry`; each has a `type` and an ISO 8601 `at`. |

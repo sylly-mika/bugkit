@@ -25,6 +25,9 @@ export type TimelineEntry = ApiCallEntry | ErrorEntry | ConsoleEntry | RouteEntr
 /** What a fetch wrapper reports about one call. */
 export type ApiCallInput = { method: string; url: string; status: number; durationMs: number; requestId?: string | null };
 
+/** Keeps a timeline in the tab's sessionStorage under `key` (default "bugkit:diagnostics:v1"); a new timeline restores the stored entries younger than `maxAgeMs` (default 30 minutes). */
+export type PersistOptions = { key?: string; maxAgeMs?: number };
+
 /** A scrubbed, bounded timeline of what the page did before a bug report. */
 export interface Diagnostics {
   recordApiCall(call: ApiCallInput): void;
@@ -40,6 +43,9 @@ const CLICKABLE = "a,button,summary,label,input,select,textarea,[role=button],[r
 const LAUNCHER = "[data-bugreport-launcher]";
 const FIELD = "input,select,textarea";
 const PRIVATE = '[contenteditable]:not([contenteditable="false"]),[data-diagnostics-private]';
+const PERSIST_KEY = "bugkit:diagnostics:v1";
+const PERSIST_MAX_AGE_MS = 30 * 60 * 1000;
+const ENTRY_TYPES: ReadonlySet<string> = new Set(["api", "error", "console", "route", "click"]);
 
 type Stored = { entry: TimelineEntry; seq: number };
 
@@ -85,26 +91,75 @@ function labelOf(element: Element): string {
   return scrubText(text, { limit: LABEL_LIMIT });
 }
 
-/** Creates an empty timeline; `now` defaults to the wall clock. */
-export function createDiagnostics(options: { now?: () => Date } = {}): Diagnostics {
+/** Runs a storage call; a full, blocked or missing storage only loses the stored copy, never the recording. */
+function attempt<T>(call: () => T, fallback: T): T {
+  try {
+    return call();
+  } catch {
+    return fallback;
+  }
+}
+
+function isEntry(value: unknown): value is TimelineEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const { type, at } = value as { type?: unknown; at?: unknown };
+  return typeof type === "string" && ENTRY_TYPES.has(type) && typeof at === "string" && !Number.isNaN(Date.parse(at));
+}
+
+/**
+ * Creates a timeline; `now` defaults to the wall clock. With `persist`, every entry is also written to the tab's
+ * sessionStorage, and a new timeline starts with the stored entries younger than `persist.maxAgeMs`.
+ */
+export function createDiagnostics(options: { now?: () => Date; persist?: PersistOptions } = {}): Diagnostics {
   const now = options.now ?? (() => new Date());
   const problems: Stored[] = [];
   const consoleRing: Stored[] = [];
   const trail: Stored[] = [];
+  const storage = options.persist
+    ? attempt(() => (typeof sessionStorage === "undefined" ? null : sessionStorage), null)
+    : null;
+  const key = options.persist?.key ?? PERSIST_KEY;
   let seq = 0;
 
-  function push(ring: Stored[], capacity: number, entry: TimelineEntry): void {
+  function push(entry: TimelineEntry): void {
+    const failed = entry.type === "error" || (entry.type === "api" && (entry.status === 0 || entry.status >= 400));
+    const [ring, capacity]: [Stored[], number] = failed
+      ? [problems, PROBLEMS_CAPACITY]
+      : entry.type === "console"
+        ? [consoleRing, CONSOLE_CAPACITY]
+        : [trail, TRAIL_CAPACITY];
     ring.push({ entry, seq: seq++ });
     if (ring.length > capacity) ring.splice(0, ring.length - capacity);
+  }
+
+  function snapshot(): TimelineEntry[] {
+    return [...problems, ...consoleRing, ...trail]
+      .sort((a, b) => Date.parse(a.entry.at) - Date.parse(b.entry.at) || a.seq - b.seq)
+      .map((item) => ({ ...item.entry }));
+  }
+
+  function record(entry: TimelineEntry): void {
+    push(entry);
+    if (storage !== null) attempt(() => storage.setItem(key, JSON.stringify(snapshot())), undefined);
   }
 
   function at(): string {
     return now().toISOString();
   }
 
+  if (storage !== null) {
+    const saved: unknown = attempt(() => JSON.parse(storage.getItem(key) ?? "[]"), null);
+    if (Array.isArray(saved)) {
+      const oldest = now().getTime() - (options.persist?.maxAgeMs ?? PERSIST_MAX_AGE_MS);
+      for (const entry of saved) {
+        if (isEntry(entry) && Date.parse(entry.at) >= oldest) push(entry);
+      }
+    }
+  }
+
   return {
     recordApiCall(call) {
-      const entry: ApiCallEntry = {
+      record({
         type: "api",
         method: call.method.toUpperCase(),
         path: scrubPath(call.url),
@@ -112,13 +167,11 @@ export function createDiagnostics(options: { now?: () => Date } = {}): Diagnosti
         duration_ms: Math.round(call.durationMs),
         request_id: call.requestId ?? "",
         at: at(),
-      };
-      if (call.status === 0 || call.status >= 400) push(problems, PROBLEMS_CAPACITY, entry);
-      else push(trail, TRAIL_CAPACITY, entry);
+      });
     },
     recordError(error, source = "") {
       const secrets = fieldValues();
-      push(problems, PROBLEMS_CAPACITY, {
+      record({
         type: "error",
         message: scrubText(messageOf(error), { secrets }),
         source: scrubText(source, { secrets }),
@@ -131,7 +184,7 @@ export function createDiagnostics(options: { now?: () => Date } = {}): Diagnosti
       });
     },
     recordConsole(level, args) {
-      push(consoleRing, CONSOLE_CAPACITY, {
+      record({
         type: "console",
         level,
         message: scrubText(args.map(messageOf).join(" "), { secrets: fieldValues() }),
@@ -139,27 +192,24 @@ export function createDiagnostics(options: { now?: () => Date } = {}): Diagnosti
       });
     },
     recordRoute(url) {
-      push(trail, TRAIL_CAPACITY, { type: "route", path: scrubPath(url), at: at() });
+      record({ type: "route", path: scrubPath(url), at: at() });
     },
     recordClick(target) {
       if (target.closest(LAUNCHER) !== null) return;
       const element = target.closest(CLICKABLE) ?? target;
-      push(trail, TRAIL_CAPACITY, {
+      record({
         type: "click",
         selector: scrubText(selectorOf(element), { limit: LABEL_LIMIT }),
         label: labelOf(element),
         at: at(),
       });
     },
-    snapshot() {
-      return [...problems, ...consoleRing, ...trail]
-        .sort((a, b) => Date.parse(a.entry.at) - Date.parse(b.entry.at) || a.seq - b.seq)
-        .map((item) => ({ ...item.entry }));
-    },
+    snapshot,
     clear() {
       problems.length = 0;
       consoleRing.length = 0;
       trail.length = 0;
+      if (storage !== null) attempt(() => storage.removeItem(key), undefined);
     },
   };
 }

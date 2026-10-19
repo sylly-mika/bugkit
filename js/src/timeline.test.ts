@@ -294,3 +294,131 @@ describe("createDiagnostics", () => {
     expect((snapshot[0] as RouteEntry).path).toBe("/after");
   });
 });
+
+describe("persist", () => {
+  const KEY = "bugkit:diagnostics:v1";
+  let seconds = 0;
+  const clock = () => new Date(T0 + seconds * 1000);
+  const paths = (timeline: Diagnostics) => timeline.snapshot().map((e) => (e as { path: string }).path);
+
+  beforeEach(() => {
+    seconds = 0;
+    sessionStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    sessionStorage.clear();
+  });
+
+  it("a persisted timeline comes back in the next instance, in order", () => {
+    const first = createDiagnostics({ now: clock, persist: {} });
+    first.recordRoute("/orders");
+    seconds = 1;
+    first.recordApiCall({ method: "POST", url: "/api/orders", status: 500, durationMs: 12 });
+    seconds = 2;
+    first.recordConsole("error", ["save failed"]);
+    seconds = 3;
+    first.recordApiCall({ method: "GET", url: "/api/orders", status: 200, durationMs: 4 });
+    seconds = 10;
+
+    const next = createDiagnostics({ now: clock, persist: {} });
+
+    expect(next.snapshot()).toHaveLength(4);
+    expect(next.snapshot()).toEqual(first.snapshot());
+  });
+
+  it("entries older than maxAgeMs stay behind", () => {
+    const first = createDiagnostics({ now: clock, persist: { maxAgeMs: 60_000 } });
+    first.recordRoute("/old");
+    seconds = 100;
+    first.recordRoute("/new");
+    seconds = 130;
+
+    expect(paths(createDiagnostics({ now: clock, persist: { maxAgeMs: 60_000 } }))).toEqual(["/new"]);
+  });
+
+  it("by default an entry comes back for 30 minutes", () => {
+    createDiagnostics({ now: clock, persist: {} }).recordRoute("/a");
+
+    seconds = 30 * 60;
+    expect(paths(createDiagnostics({ now: clock, persist: {} }))).toEqual(["/a"]);
+    seconds = 30 * 60 + 1;
+    expect(paths(createDiagnostics({ now: clock, persist: {} }))).toEqual([]);
+  });
+
+  it("restored entries keep their ring's limit", () => {
+    const first = createDiagnostics({ now: clock, persist: {} });
+    for (let i = 1; i <= 20; i += 1) first.recordApiCall({ method: "GET", url: "/x/" + i, status: 500, durationMs: 1 });
+    seconds = 1;
+
+    const next = createDiagnostics({ now: clock, persist: {} });
+    next.recordApiCall({ method: "GET", url: "/x/21", status: 500, durationMs: 1 });
+
+    const kept = paths(next);
+    expect(kept).toHaveLength(20);
+    expect(kept[0]).toBe("/x/2");
+    expect(kept[19]).toBe("/x/21");
+  });
+
+  it("each key keeps its own timeline", () => {
+    createDiagnostics({ now: clock, persist: { key: "one" } }).recordRoute("/one");
+
+    expect(paths(createDiagnostics({ now: clock, persist: { key: "two" } }))).toEqual([]);
+    expect(paths(createDiagnostics({ now: clock, persist: { key: "one" } }))).toEqual(["/one"]);
+  });
+
+  it("a stored value that is not a timeline is skipped entry by entry", () => {
+    sessionStorage.setItem(KEY, "not json");
+    expect(createDiagnostics({ now: clock, persist: {} }).snapshot()).toEqual([]);
+
+    sessionStorage.setItem(
+      KEY,
+      JSON.stringify([5, null, { type: "nope", at: iso(0) }, { type: "route", path: "/no-time" }, { type: "route", path: "/kept", at: iso(0) }]),
+    );
+    expect(createDiagnostics({ now: clock, persist: {} }).snapshot()).toEqual([{ type: "route", path: "/kept", at: iso(0) }]);
+
+    sessionStorage.setItem(KEY, JSON.stringify({ type: "route", path: "/object", at: iso(0) }));
+    expect(createDiagnostics({ now: clock, persist: {} }).snapshot()).toEqual([]);
+  });
+
+  it("clear also forgets the stored timeline", () => {
+    const first = createDiagnostics({ now: clock, persist: {} });
+    first.recordRoute("/a");
+    first.clear();
+
+    expect(createDiagnostics({ now: clock, persist: {} }).snapshot()).toEqual([]);
+  });
+
+  it("without persist nothing is stored or restored", () => {
+    createDiagnostics({ now: clock }).recordRoute("/a");
+    expect(sessionStorage.length).toBe(0);
+
+    createDiagnostics({ now: clock, persist: {} }).recordRoute("/b");
+    expect(createDiagnostics({ now: clock }).snapshot()).toEqual([]);
+  });
+
+  it("a full, blocked or missing storage never stops the recording", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new DOMException("blocked", "SecurityError");
+    });
+    const blocked = createDiagnostics({ now: clock, persist: {} });
+    blocked.recordRoute("/a");
+    blocked.clear();
+    blocked.recordRoute("/b");
+    expect(paths(blocked)).toEqual(["/b"]);
+
+    vi.restoreAllMocks();
+    vi.stubGlobal("sessionStorage", undefined);
+    const missing = createDiagnostics({ now: clock, persist: {} });
+    missing.recordRoute("/c");
+    expect(paths(missing)).toEqual(["/c"]);
+  });
+});
