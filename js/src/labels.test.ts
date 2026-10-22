@@ -17,7 +17,7 @@ const v080Kind: BugReportKindLabels = {
   send: "t",
 };
 
-// A v0.8.0 host's full label literal: every key BugReportLabels had at v0.8.0, and none of the v0.9.0 keys.
+// WHY: a full label literal from before the optional keys must still compile.
 const v080Labels: BugReportLabels = {
   bug: v080Kind,
   feature: v080Kind,
