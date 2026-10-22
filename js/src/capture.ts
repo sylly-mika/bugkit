@@ -93,6 +93,38 @@ function viewportFraming(root: HTMLElement) {
   };
 }
 
+const SCROLL_ATTRIBUTE = "data-bugkit-scroll";
+
+/**
+ * WHY: html-to-image puts fontEmbedCSS into the clone only, and the clone copies
+ * attributes, so the marks and their rules reach the picture while the live
+ * page never sees them. The marks are removed by the caller once the capture
+ * settles.
+ */
+function markScrolled(root: HTMLElement): { css: string; unmark: () => void } {
+  const rules: string[] = [];
+  const marked: Element[] = [];
+  for (const el of Array.from(root.querySelectorAll("*"))) {
+    if (el.scrollTop === 0 && el.scrollLeft === 0) {
+      continue;
+    }
+    const n = String(marked.length);
+    el.setAttribute(SCROLL_ATTRIBUTE, n);
+    marked.push(el);
+    rules.push(
+      `[${SCROLL_ATTRIBUTE}="${n}"] > * { translate: ${-el.scrollLeft}px ${-el.scrollTop}px !important; }`,
+    );
+  }
+  return {
+    css: rules.join("\n"),
+    unmark: () => {
+      for (const el of marked) {
+        el.removeAttribute(SCROLL_ATTRIBUTE);
+      }
+    },
+  };
+}
+
 export async function capturePage(options: CaptureOptions = {}): Promise<CaptureResult> {
   const root = options.root ?? document.body;
   const nodeCap = options.nodeCap ?? CAPTURE_NODE_CAP;
@@ -112,6 +144,7 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
     timer = setTimeout(() => resolve({ ok: false, reason: "timed-out" }), timeoutMs);
   });
 
+  const scrolled = markScrolled(root);
   const capture: Promise<CaptureResult> = toPng(root, {
     // Deliberately off. html-to-image appends `?<timestamp>` to EVERY resource
     // URL when it is on, blob: included — and a blob URL with a query string
@@ -135,6 +168,7 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
       "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
     // A caller's own root is photographed whole; the page is framed.
     ...(root === document.body ? viewportFraming(root) : {}),
+    ...(scrolled.css ? { fontEmbedCSS: scrolled.css } : {}),
   })
     .then((dataUrl): CaptureResult => ({ ok: true, dataUrl }))
     .catch((): CaptureResult => ({ ok: false, reason: "failed" }));
@@ -143,5 +177,6 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
     return await Promise.race([capture, timeout]);
   } finally {
     clearTimeout(timer);
+    scrolled.unmark();
   }
 }
