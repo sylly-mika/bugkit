@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { toPng } from "html-to-image";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportButton } from "./BugReportButton.js";
 import { defaultLabels } from "./labels.js";
 
@@ -270,5 +270,139 @@ describe("BugReportButton", () => {
     await user.click(await screen.findByRole("button", { name: defaultLabels.back }));
 
     await waitFor(() => expect(launcher).toHaveFocus());
+  });
+
+  describe("screenshot retakes", () => {
+    beforeEach(() => {
+      window.sessionStorage.clear();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("retakes after a countdown and keeps the words", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+      const onOpenChange = vi.fn();
+      const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("quota");
+      });
+
+      try {
+        render(
+          <BugReportButton
+            submit={vi.fn()}
+            getContext={getContext}
+            diagnostics={() => []}
+            onOpenChange={onOpenChange}
+          />,
+        );
+        await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+        await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Login fails");
+        await user.click(screen.getByRole("button", { name: defaultLabels.retakeDelayed }));
+
+        expect(screen.queryByRole("dialog")).toBeNull();
+        expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureCountdown(3));
+        await act(() => vi.advanceTimersByTimeAsync(1000));
+        expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureCountdown(2));
+        await act(() => vi.advanceTimersByTimeAsync(1000));
+        expect(toPngMock).toHaveBeenCalledTimes(1);
+        await act(() => vi.advanceTimersByTimeAsync(1000));
+        expect(toPngMock).toHaveBeenCalledTimes(2);
+
+        expect(await screen.findByLabelText(defaultLabels.summaryLabel)).toHaveValue("Login fails");
+        expect(onOpenChange.mock.calls).toEqual([[true]]);
+      } finally {
+        setItem.mockRestore();
+      }
+    });
+
+    it("retakes on S, not while typing in a field", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+
+      render(
+        <>
+          <input aria-label="Page search" />
+          <BugReportButton
+            submit={vi.fn()}
+            getContext={getContext}
+            diagnostics={() => []}
+            classNames={{ "capture-hint": "app-hint" }}
+          />
+        </>,
+      );
+      await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+      await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
+
+      expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureKeyHint);
+      const bar = document.querySelector<HTMLElement>('[data-bugkit="capture-hint"]');
+      expect(bar).toHaveClass("app-hint");
+
+      await user.type(screen.getByLabelText("Page search"), "s");
+      expect(toPngMock).toHaveBeenCalledTimes(1);
+      expect(screen.getByLabelText("Page search")).toHaveValue("s");
+
+      (document.activeElement as HTMLElement).blur();
+      await user.keyboard("s");
+      await waitFor(() => expect(toPngMock).toHaveBeenCalledTimes(2));
+      const { filter } = toPngMock.mock.calls[1][1]!;
+      expect(filter!(bar!)).toBe(false);
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    });
+
+    it.each([
+      ["delay", "Escape"],
+      ["delay", "Cancel screenshot"],
+      ["key", "Escape"],
+      ["key", "Cancel screenshot"],
+    ])("cancels a pending %s retake with %s", async (mode, how) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+      const pageKeys = vi.fn();
+      window.addEventListener("keydown", pageKeys);
+
+      try {
+        renderButton();
+        await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+        await user.click(
+          await screen.findByRole("button", {
+            name: mode === "delay" ? defaultLabels.retakeDelayed : defaultLabels.retakeOnKey,
+          }),
+        );
+        if (how === "Escape") {
+          await user.keyboard("{Escape}");
+        } else {
+          await user.click(screen.getByRole("button", { name: defaultLabels.captureCancel }));
+        }
+
+        expect(await screen.findByRole("dialog")).toBeInTheDocument();
+        expect(toPngMock).toHaveBeenCalledTimes(1);
+        await act(() => vi.advanceTimersByTimeAsync(5000));
+        expect(toPngMock).toHaveBeenCalledTimes(1);
+        expect(pageKeys.mock.calls.some(([event]) => event.key === "Escape")).toBe(false);
+      } finally {
+        window.removeEventListener("keydown", pageKeys);
+      }
+    });
+
+    it("ignores the launcher while a retake waits", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+
+      renderButton();
+      const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
+      await user.click(launcher);
+      await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
+
+      await user.click(launcher);
+      expect(toPngMock).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
   });
 });
