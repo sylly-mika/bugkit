@@ -1,4 +1,4 @@
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { toPng } from "html-to-image";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -43,6 +43,12 @@ function dialog(overrides: Partial<Parameters<typeof BugReportDialog>[0]> = {}) 
   );
 }
 
+function recordNamedParts(into: Set<string>) {
+  document.querySelectorAll<HTMLElement>("[data-bugkit]").forEach((el) => {
+    if (el.classList.contains(`app-${el.dataset.bugkit}`)) into.add(el.dataset.bugkit!);
+  });
+}
+
 function sheet(): HTMLStyleElement | null {
   return document.head.querySelector<HTMLStyleElement>("style[data-bugkit-styles]");
 }
@@ -60,11 +66,11 @@ describe("bugkit theme", () => {
     document.head.querySelectorAll("style[data-bugkit-styles]").forEach((el) => el.remove());
   });
 
-  it("gives every part the class the app names for it", () => {
+  it("gives every part the class the app names for it", async () => {
     const classNames = Object.fromEntries(
       BUG_REPORT_PARTS.map((part) => [part, `app-${part}`]),
     ) as BugReportClassNames;
-    render(dialog({ classNames }));
+    const dialogView = render(dialog({ classNames }));
 
     for (const part of ["overlay", "panel", "primary-button", "tool", "canvas", "field"]) {
       expect(document.querySelector(`[data-bugkit="${part}"]`)).not.toBeNull();
@@ -74,6 +80,28 @@ describe("bugkit theme", () => {
     tagged.forEach((el) => {
       expect(el).toHaveClass(`app-${el.dataset.bugkit}`);
     });
+    const seen = new Set<string>();
+    recordNamedParts(seen);
+    dialogView.unmount();
+
+    vi.mocked(toPng).mockResolvedValue("data:image/png;base64,AAECAw==");
+    const user = userEvent.setup();
+    render(
+      <BugReportButton
+        submit={vi.fn()}
+        getContext={() => ({ area: "/projects/7/board", version: "3862535" })}
+        diagnostics={() => []}
+        classNames={classNames}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
+    expect(document.querySelector('[data-bugkit="capture-hint"]')).not.toBeNull();
+    recordNamedParts(seen);
+
+    for (const part of ["screenshot-modes", "screenshot-mode", "capture-hint", "capture-cancel"]) {
+      expect(seen.has(part), part).toBe(true);
+    }
   });
 
   it("keeps only the editor's geometry inline", () => {
