@@ -10,6 +10,9 @@
   `capture-hint`, `capture-cancel`, and new labels for their text.
 - npm: a screenshot taken while an inner panel is scrolled shows the panel
   scrolled as it was on screen.
+  Text placed directly inside a scrolled element (a bare `<pre>` log, a
+  text-only box, or a textarea) is captured from its top, while a scrolled
+  element whose content is elements shows as scrolled.
 - Nothing is removed. Opening the dialog still takes the screenshot at once.
 
 ## v0.8.0

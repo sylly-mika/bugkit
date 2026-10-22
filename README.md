@@ -261,8 +261,10 @@ The dialog then offers to retake the screenshot after a 3-second countdown,
 or on the S key once the page is arranged (S is ignored while typing in a
 field; Escape or Cancel screenshot cancels a pending retake), or to send
 without a screenshot. The hint bar is left out of the screenshot, and an
-inner element that is scrolled is captured scrolled. `screenshotModes={false}`
-hides the options. The texts are the label keys `screenshotModes`,
+inner element that is scrolled is captured scrolled. Text placed directly
+inside a scrolled element (a bare `<pre>` log, a text-only box, or a textarea)
+is captured from its top, while a scrolled element whose content is elements
+shows as scrolled. `screenshotModes={false}` hides the options. The texts are the label keys `screenshotModes`,
 `retakeDelayed`, `retakeOnKey`, `removeScreenshot`, `screenshotRemoved`,
 `captureCountdown`, `captureKeyHint` and `captureCancel`; the parts are
 `screenshot-modes`, `screenshot-mode`, `capture-hint` and `capture-cancel`.
