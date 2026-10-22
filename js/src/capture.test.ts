@@ -71,6 +71,22 @@ describe("capturePage", () => {
     expect(document.querySelector("[data-bugkit-scroll]")).toBeNull();
   });
 
+  it("shows a page scrolled inside the body", async () => {
+    Object.defineProperty(document.body, "scrollTop", { value: 120, configurable: true });
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    try {
+      await capturePage();
+    } finally {
+      Reflect.deleteProperty(document.body, "scrollTop");
+    }
+
+    expect(toPngMock.mock.calls[0][1]?.fontEmbedCSS).toBe(
+      '[data-bugkit-scroll="0"] > * { translate: 0px -120px !important; }',
+    );
+    expect(document.body.hasAttribute("data-bugkit-scroll")).toBe(false);
+  });
+
   it("unmarks the page when the capture fails", async () => {
     const a = document.createElement("div");
     document.body.append(a);

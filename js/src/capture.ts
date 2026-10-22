@@ -104,7 +104,7 @@ const SCROLL_ATTRIBUTE = "data-bugkit-scroll";
 function markScrolled(root: HTMLElement): { css: string; unmark: () => void } {
   const rules: string[] = [];
   const marked: Element[] = [];
-  for (const el of Array.from(root.querySelectorAll("*"))) {
+  for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
     if (el.scrollTop === 0 && el.scrollLeft === 0) {
       continue;
     }
