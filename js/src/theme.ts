@@ -42,6 +42,10 @@ export const BUG_REPORT_PARTS = [
   "canvas",
   "text-input",
   "editor",
+  "screenshot-modes",
+  "screenshot-mode",
+  "capture-hint",
+  "capture-cancel",
 ] as const;
 
 export type BugReportPart = (typeof BUG_REPORT_PARTS)[number];
@@ -298,7 +302,9 @@ export const BUGKIT_CSS = `@layer theme, base, bugkit, components, utilities;
     opacity: 0.6;
     cursor: not-allowed;
   }
-  :where([data-bugkit="secondary-button"]) {
+  :where([data-bugkit="secondary-button"]),
+  :where([data-bugkit="screenshot-mode"]),
+  :where([data-bugkit="capture-cancel"]) {
     height: 36px;
     padding: 0px 16px;
     border: 1px solid var(--color-border, #e5e5e5);
@@ -307,6 +313,26 @@ export const BUGKIT_CSS = `@layer theme, base, bugkit, components, utilities;
     color: var(--color-foreground, #171717);
     font: inherit;
     cursor: pointer;
+  }
+  :where([data-bugkit="screenshot-modes"]) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  :where([data-bugkit="capture-hint"]) {
+    position: fixed;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-radius: var(--radius-md, 12px);
+    background: var(--color-card, #ffffff);
+    color: var(--color-card-foreground, #171717);
   }
   :where([data-bugkit="toolbar"]) {
     display: flex;

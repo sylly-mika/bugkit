@@ -1,7 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BugReportDialog } from "./BugReportDialog.js";
+import { BugReportDialog, type BugReportDialogProps } from "./BugReportDialog.js";
 import type { BugReportKindLabels, BugReportLabels } from "./labels.js";
 import type { BugReportContext, BugReportEnvironment } from "./payload.js";
 
@@ -10,13 +10,19 @@ import type { BugReportContext, BugReportEnvironment } from "./payload.js";
 // dialog does with the answers a browser gives has to be driven from a stand-in.
 const pane = vi.hoisted(() => ({ toBlob: vi.fn(), cancelText: () => false }));
 
+// The stand-in shows the placeholder line the real pane shows without a picture,
+// so the text the dialog hands it can be read back.
 vi.mock("./ScreenshotPane.js", async () => {
   const { forwardRef, useImperativeHandle } = await import("react");
 
   return {
-    ScreenshotPane: forwardRef(function FakePane(_props, ref) {
+    ScreenshotPane: forwardRef(function FakePane(
+      props: { dataUrl: string | null; labels: BugReportLabels; emptyMessage?: string },
+      ref,
+    ) {
       useImperativeHandle(ref, () => pane, []);
-      return null;
+      if (props.dataUrl !== null) return null;
+      return <p>{props.emptyMessage ?? props.labels.captureFailed}</p>;
     }),
   };
 });
@@ -52,6 +58,7 @@ const environment: BugReportEnvironment = {
 
 function renderDialog(
   submit = vi.fn().mockResolvedValue({ id: "0190d1c2-0000-7000-8000-000000000141", number: 141 }),
+  extra: Partial<BugReportDialogProps> = {},
 ) {
   render(
     <BugReportDialog
@@ -62,6 +69,7 @@ function renderDialog(
       diagnostics={[]}
       submit={submit}
       onClose={vi.fn()}
+      {...extra}
     />,
   );
 
@@ -77,6 +85,8 @@ async function fillAndSend(user: ReturnType<typeof userEvent.setup>, text: strin
 describe("BugReportDialog and the screenshot it is handed", () => {
   beforeEach(() => {
     pane.toBlob.mockReset();
+    // WHY: a draft left by an earlier test would be restored into this dialog and typed over.
+    sessionStorage.clear();
   });
 
   // The export goes into the form as a PNG part the server can read back.
@@ -151,5 +161,64 @@ describe("BugReportDialog and the screenshot it is handed", () => {
       "false",
     );
     expect(await screen.findByRole("button", { name: "copyToClipboard" })).toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      host: "retakes and can be kept",
+      extra: { onRetake: vi.fn() },
+      buttons: ["retakeDelayed", "retakeOnKey", "removeScreenshot"],
+    },
+    { host: "does not retake", extra: {}, buttons: ["removeScreenshot"] },
+    {
+      host: "turns the options off",
+      extra: { onRetake: vi.fn(), screenshotModes: false },
+      buttons: null,
+    },
+  ])("shows the screenshot options a host allows: $host", ({ extra, buttons }) => {
+    renderDialog(undefined, extra);
+
+    const group = screen.queryByRole("group", { name: "screenshotModes" });
+    if (buttons === null) {
+      expect(group).not.toBeInTheDocument();
+      return;
+    }
+    expect(
+      within(group!)
+        .getAllByRole("button")
+        .map((button) => button.textContent),
+    ).toEqual(buttons);
+  });
+
+  it("starts a retake with the words the reporter has typed", async () => {
+    const user = userEvent.setup();
+    const onRetake = vi.fn();
+    renderDialog(undefined, { onRetake });
+
+    await user.type(screen.getByLabelText("summaryLabel"), "Summary");
+    await user.click(screen.getByRole("button", { name: "retakeOnKey" }));
+
+    expect(onRetake).toHaveBeenCalledWith("key", {
+      kind: "bug",
+      summary: "Summary",
+      description: "",
+      impact: "workaround",
+    });
+  });
+
+  it("sends without a screenshot once the reporter removes it", async () => {
+    const user = userEvent.setup();
+    const { submit } = renderDialog();
+
+    await user.click(screen.getByRole("button", { name: "removeScreenshot" }));
+
+    expect(screen.getByText("screenshotRemoved")).toBeInTheDocument();
+    expect(screen.queryByText("captureFailed")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "removeScreenshot" })).not.toBeInTheDocument();
+
+    await fillAndSend(user, "Sent without the picture");
+
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    expect(submit.mock.calls[0][0].get("screenshot")).toBeNull();
   });
 });

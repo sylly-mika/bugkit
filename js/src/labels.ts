@@ -51,6 +51,14 @@ export type BugReportLabels = {
   capturePending: string;
   captureFailed: string;
   captureFallbackHint: string;
+  screenshotModes: string;
+  retakeDelayed: string;
+  retakeOnKey: string;
+  removeScreenshot: string;
+  screenshotRemoved: string;
+  captureCountdown: (seconds: number) => string;
+  captureKeyHint: string;
+  captureCancel: string;
   uploadLabel: string;
   uploadRejected: string;
   /** Shown after Send when the annotated PNG was over the backend's cap and was dropped. */
@@ -153,6 +161,14 @@ export const defaultLabels: BugReportLabels = {
   capturePending: "Taking a screenshot…",
   captureFailed: "The screenshot could not be taken.",
   captureFallbackHint: "Paste (Ctrl+V) or upload a screenshot instead.",
+  screenshotModes: "Screenshot options",
+  retakeDelayed: "Retake in 3 seconds",
+  retakeOnKey: "Retake on key press",
+  removeScreenshot: "Send without screenshot",
+  screenshotRemoved: "No screenshot will be sent.",
+  captureCountdown: (seconds) => `Screenshot in ${seconds}… Press Esc to cancel.`,
+  captureKeyHint: "Arrange the page, then press S to take the screenshot. Press Esc to cancel.",
+  captureCancel: "Cancel screenshot",
   uploadLabel: "Upload an image",
   uploadRejected: "Choose a PNG image no larger than 5 MB.",
   screenshotTooLarge: "The screenshot was over 5 MB, so the report was sent without it.",

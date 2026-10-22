@@ -43,6 +43,8 @@ export type ScreenshotPaneProps = {
   onMarkupChange?: (marked: boolean) => void;
   classNames?: BugReportClassNames;
   allowReplace?: boolean;
+  /** Replaces `labels.captureFailed` on the placeholder. */
+  emptyMessage?: string;
 };
 
 const STROKE = "#e11d48";
@@ -247,6 +249,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       onMarkupChange,
       classNames,
       allowReplace = true,
+      emptyMessage,
     },
     ref,
   ) {
@@ -580,7 +583,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
         <div>
           {toolbar}
           <div {...partProps(classNames, "placeholder")}>
-            <span>{labels.captureFailed}</span>
+            <span>{emptyMessage ?? labels.captureFailed}</span>
             <span>{labels.captureFallbackHint}</span>
             {allowReplace ? upload : null}
             {rejection}
