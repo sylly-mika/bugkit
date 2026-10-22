@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.9.0
+
+- npm: the dialog offers screenshot options: retake the screenshot after a
+  3-second countdown, or on the S key after arranging the page, or send
+  without a screenshot. Escape or Cancel screenshot cancels a pending retake.
+  `BugReportButton` and `BugReport` take `screenshotModes` (default `true`);
+  `false` hides the options. New parts `screenshot-modes`, `screenshot-mode`,
+  `capture-hint`, `capture-cancel`, and new labels for their text.
+- npm: a screenshot taken while an inner panel is scrolled shows the panel
+  scrolled as it was on screen.
+  Text placed directly inside a scrolled element (a bare `<pre>` log, a
+  text-only box, or a textarea) is captured from its top, while a scrolled
+  element whose content is elements shows as scrolled.
+- Nothing is removed. Opening the dialog still takes the screenshot at once.
+
 ## v0.8.0
 
 - npm: `createDiagnostics` takes `persist` (`{ key?, maxAgeMs? }`). With it,

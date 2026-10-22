@@ -16,7 +16,7 @@ import {
   type BugReportSubmit,
 } from "./payload.js";
 import type { CaptureResult } from "./capture.js";
-import { formatFiled, type BugReportKindLabels, type BugReportLabels } from "./labels.js";
+import { formatFiled, mergeLabels, type BugReportKindLabels, type BugReportLabels } from "./labels.js";
 import { DESCRIPTION_LIMIT, clearDraft, readDraft, writeDraft, type Draft } from "./draft.js";
 
 export type BugReportDialogProps = {
@@ -33,7 +33,15 @@ export type BugReportDialogProps = {
   nonce?: string;
   /** Shows the Technical details disclosure (default true); the details are sent either way. */
   technicalDetails?: boolean;
+  /** Shows the screenshot options: retake, when `onRetake` is given, and send without one (default true). */
+  screenshotModes?: boolean;
+  /** Called with the words as typed when the reporter asks for a retake; the host takes the new screenshot and reopens with `initialDraft`. */
+  onRetake?: (mode: RetakeMode, draft: Draft) => void;
+  /** The draft to start from, in place of the saved one. */
+  initialDraft?: Draft;
 };
+
+export type RetakeMode = "delay" | "key";
 
 type Phase =
   | { name: "editing" }
@@ -80,7 +88,7 @@ function lockBodyScroll(): () => void {
 export function BugReportDialog(props: BugReportDialogProps) {
   const {
     capture,
-    labels,
+    labels: labelOverrides,
     context,
     environment,
     diagnostics,
@@ -89,16 +97,21 @@ export function BugReportDialog(props: BugReportDialogProps) {
     classNames,
     nonce,
     technicalDetails = true,
+    screenshotModes = true,
+    onRetake,
+    initialDraft,
   } = props;
+  const labels = mergeLabels(labelOverrides);
   useBugkitStyles(nonce);
 
-  const [restored] = useState<Draft | null>(readDraft);
+  const [restored] = useState<Draft | null>(() => initialDraft ?? readDraft());
   const [kind, setKind] = useState<BugKind>(restored?.kind ?? "bug");
   const [summary, setSummary] = useState(restored?.summary ?? "");
   const [description, setDescription] = useState(restored?.description ?? "");
   const [impact, setImpact] = useState<BugImpact>(restored?.impact ?? "workaround");
-  const [draftSaved, setDraftSaved] = useState(restored !== null);
+  const [draftSaved, setDraftSaved] = useState(() => readDraft() !== null);
   const [dataUrl, setDataUrl] = useState(capture.ok ? capture.dataUrl : null);
+  const [removed, setRemoved] = useState(false);
   const [summaryInvalid, setSummaryInvalid] = useState(false);
   const [descriptionInvalid, setDescriptionInvalid] = useState(false);
   const [oversize, setOversize] = useState(false);
@@ -256,6 +269,18 @@ export function BugReportDialog(props: BugReportDialogProps) {
     onClose();
   }
 
+  // WHY: while sending, the dialog must stay up to show the outcome; a retake would unmount it under the send.
+  function retake(mode: RetakeMode) {
+    if (sending || !onRetake) return;
+    onRetake(mode, { kind, summary, description, impact });
+  }
+
+  function removeScreenshot() {
+    if (sending) return;
+    setDataUrl(null);
+    setRemoved(true);
+  }
+
   async function send() {
     // WHY: aria-disabled leaves the button clickable, so the guard has to live in the handler.
     if (sending) return;
@@ -394,11 +419,53 @@ export function BugReportDialog(props: BugReportDialogProps) {
         ) : (
           <div {...partProps(classNames, "body")}>
             <div {...partProps(classNames, "image-column")}>
+              {screenshotModes && (onRetake !== undefined || dataUrl !== null) ? (
+                <div
+                  role="group"
+                  aria-label={labels.screenshotModes}
+                  {...partProps(classNames, "screenshot-modes")}
+                >
+                  {onRetake ? (
+                    <>
+                      <button
+                        type="button"
+                        {...partProps(classNames, "screenshot-mode")}
+                        onClick={() => retake("delay")}
+                        aria-disabled={sending}
+                      >
+                        {labels.retakeDelayed}
+                      </button>
+                      <button
+                        type="button"
+                        {...partProps(classNames, "screenshot-mode")}
+                        onClick={() => retake("key")}
+                        aria-disabled={sending}
+                      >
+                        {labels.retakeOnKey}
+                      </button>
+                    </>
+                  ) : null}
+                  {dataUrl !== null ? (
+                    <button
+                      type="button"
+                      {...partProps(classNames, "screenshot-mode")}
+                      onClick={removeScreenshot}
+                      aria-disabled={sending}
+                    >
+                      {labels.removeScreenshot}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               <ScreenshotPane
                 ref={paneRef}
                 dataUrl={dataUrl}
                 labels={labels}
-                onImageChosen={setDataUrl}
+                onImageChosen={(chosen) => {
+                  setRemoved(false);
+                  setDataUrl(chosen);
+                }}
+                emptyMessage={removed ? labels.screenshotRemoved : undefined}
                 expanded={expanded}
                 onToggleExpanded={() => setExpanded(!expanded)}
                 onMarkupChange={setMarkedUp}

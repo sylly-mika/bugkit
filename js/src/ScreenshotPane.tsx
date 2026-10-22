@@ -23,7 +23,7 @@ import {
   type Tool,
 } from "./shapes.js";
 import { partProps, type BugReportClassNames } from "./theme.js";
-import type { BugReportLabels } from "./labels.js";
+import type { ResolvedBugReportLabels } from "./labels.js";
 
 export type ScreenshotPaneHandle = {
   toBlob(): Promise<Blob | null>;
@@ -36,13 +36,15 @@ export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
 export type ScreenshotPaneProps = {
   dataUrl: string | null;
-  labels: BugReportLabels;
+  labels: ResolvedBugReportLabels;
   onImageChosen: (dataUrl: string) => void;
   expanded: boolean;
   onToggleExpanded: () => void;
   onMarkupChange?: (marked: boolean) => void;
   classNames?: BugReportClassNames;
   allowReplace?: boolean;
+  /** Replaces `labels.captureFailed` on the placeholder. */
+  emptyMessage?: string;
 };
 
 const STROKE = "#e11d48";
@@ -247,6 +249,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
       onMarkupChange,
       classNames,
       allowReplace = true,
+      emptyMessage,
     },
     ref,
   ) {
@@ -580,7 +583,7 @@ export const ScreenshotPane = forwardRef<ScreenshotPaneHandle, ScreenshotPanePro
         <div>
           {toolbar}
           <div {...partProps(classNames, "placeholder")}>
-            <span>{labels.captureFailed}</span>
+            <span>{emptyMessage ?? labels.captureFailed}</span>
             <span>{labels.captureFallbackHint}</span>
             {allowReplace ? upload : null}
             {rejection}

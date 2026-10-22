@@ -46,6 +46,72 @@ describe("capturePage", () => {
     await expect(capturePage()).resolves.toEqual({ ok: false, reason: "failed" });
   });
 
+  // WHY: jsdom keeps scrollTop at 0, so the offsets are set on the elements.
+  it("shows a scrolled inner panel scrolled", async () => {
+    const a = document.createElement("div");
+    const b = document.createElement("div");
+    const c = document.createElement("div");
+    document.body.append(a, b, c);
+    Object.defineProperty(a, "scrollTop", { value: 120, configurable: true });
+    Object.defineProperty(c, "scrollLeft", { value: 40, configurable: true });
+
+    let markedDuringCapture: (string | null)[] = [];
+    toPngMock.mockImplementation(() => {
+      markedDuringCapture = [a, b, c].map((el) => el.getAttribute("data-bugkit-scroll"));
+      return Promise.resolve("data:image/png;base64,AAAA");
+    });
+
+    await capturePage();
+
+    expect(markedDuringCapture).toEqual(["0", null, "1"]);
+    expect(toPngMock.mock.calls[0][1]?.fontEmbedCSS).toBe(
+      '[data-bugkit-scroll="0"] > * { translate: 0px -120px !important; }\n' +
+        '[data-bugkit-scroll="1"] > * { translate: -40px 0px !important; }',
+    );
+    expect(document.querySelector("[data-bugkit-scroll]")).toBeNull();
+  });
+
+  it("shows a page scrolled inside the body", async () => {
+    Object.defineProperty(document.body, "scrollTop", { value: 120, configurable: true });
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    try {
+      await capturePage();
+    } finally {
+      Reflect.deleteProperty(document.body, "scrollTop");
+    }
+
+    expect(toPngMock.mock.calls[0][1]?.fontEmbedCSS).toBe(
+      '[data-bugkit-scroll="0"] > * { translate: 0px -120px !important; }',
+    );
+    expect(document.body.hasAttribute("data-bugkit-scroll")).toBe(false);
+  });
+
+  it("unmarks the page when the capture fails", async () => {
+    const a = document.createElement("div");
+    document.body.append(a);
+    Object.defineProperty(a, "scrollTop", { value: 120, configurable: true });
+
+    let markedDuringCapture: string | null = null;
+    toPngMock.mockImplementation(() => {
+      markedDuringCapture = a.getAttribute("data-bugkit-scroll");
+      return Promise.reject(new Error("tainted canvas"));
+    });
+
+    await expect(capturePage()).resolves.toEqual({ ok: false, reason: "failed" });
+    expect(markedDuringCapture).toBe("0");
+    expect(document.querySelector("[data-bugkit-scroll]")).toBeNull();
+  });
+
+  it("leaves an unscrolled page's capture as it was", async () => {
+    document.body.append(document.createElement("div"));
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+
+    expect("fontEmbedCSS" in toPngMock.mock.calls[0][1]!).toBe(false);
+  });
+
   it("renders at 1x, skips the font pass and leaves cache-busting off", async () => {
     toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
     await capturePage();
