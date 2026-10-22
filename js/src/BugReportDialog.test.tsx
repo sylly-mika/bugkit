@@ -2,7 +2,7 @@ import { cleanup, act, fireEvent, render, screen, waitFor, within } from "@testi
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog } from "./BugReportDialog.js";
-import type { BugReportKindLabels, BugReportLabels } from "./labels.js";
+import type { BugReportKindLabels, ResolvedBugReportLabels } from "./labels.js";
 import { reportAsText } from "./payload.js";
 import type { BugReportContext, BugReportEnvironment } from "./payload.js";
 
@@ -16,7 +16,7 @@ const TEMPLATES: Record<string, string> = { filed: "issue {number}" };
 const kindLabels = (kind: "bug" | "feature") =>
   new Proxy({} as BugReportKindLabels, { get: (_t, key) => `${kind}.${String(key)}` });
 
-const labels = new Proxy({} as BugReportLabels, {
+const labels = new Proxy({} as ResolvedBugReportLabels, {
   get: (_t, key) => {
     if (key === "bug" || key === "feature") return kindLabels(key);
     if (key === "characterCount") return (used: number, limit: number) => `${used} / ${limit}`;

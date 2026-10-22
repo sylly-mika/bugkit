@@ -8,7 +8,7 @@ import {
   type BugReportEnvironment,
   type BugReportSubmit,
 } from "./payload.js";
-import { mergeLabels, type BugReportLabelOverrides, type BugReportLabels } from "./labels.js";
+import { mergeLabels, type BugReportLabelOverrides, type ResolvedBugReportLabels } from "./labels.js";
 import { partProps, type BugReportClassNames } from "./theme.js";
 
 const SCREENSHOT_DELAY_SECONDS = 3;
@@ -77,7 +77,7 @@ export function BugReportButton(props: BugReportButtonProps) {
     technicalDetails,
     screenshotModes,
   } = props;
-  const labels: BugReportLabels = mergeLabels(props.labels);
+  const labels: ResolvedBugReportLabels = mergeLabels(props.labels);
   const [session, setSession] = useState<Session | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);

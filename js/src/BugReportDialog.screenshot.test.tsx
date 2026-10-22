@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog, type BugReportDialogProps } from "./BugReportDialog.js";
-import type { BugReportKindLabels, BugReportLabels } from "./labels.js";
+import type { BugReportKindLabels, ResolvedBugReportLabels } from "./labels.js";
 import type { BugReportContext, BugReportEnvironment } from "./payload.js";
 
 // The dialog's own file drives the real pane, which in jsdom can only ever
@@ -17,7 +17,7 @@ vi.mock("./ScreenshotPane.js", async () => {
 
   return {
     ScreenshotPane: forwardRef(function FakePane(
-      props: { dataUrl: string | null; labels: BugReportLabels; emptyMessage?: string },
+      props: { dataUrl: string | null; labels: ResolvedBugReportLabels; emptyMessage?: string },
       ref,
     ) {
       useImperativeHandle(ref, () => pane, []);
@@ -35,7 +35,7 @@ const TEMPLATES: Record<string, string> = { filed: "issue {number}" };
 const kindLabels = (kind: "bug" | "feature") =>
   new Proxy({} as BugReportKindLabels, { get: (_t, key) => `${kind}.${String(key)}` });
 
-const labels = new Proxy({} as BugReportLabels, {
+const labels = new Proxy({} as ResolvedBugReportLabels, {
   get: (_t, key) => {
     if (key === "bug" || key === "feature") return kindLabels(key);
     if (key === "characterCount") return (used: number, limit: number) => `${used} / ${limit}`;

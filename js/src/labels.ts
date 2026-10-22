@@ -51,14 +51,15 @@ export type BugReportLabels = {
   capturePending: string;
   captureFailed: string;
   captureFallbackHint: string;
-  screenshotModes: string;
-  retakeDelayed: string;
-  retakeOnKey: string;
-  removeScreenshot: string;
-  screenshotRemoved: string;
-  captureCountdown: (seconds: number) => string;
-  captureKeyHint: string;
-  captureCancel: string;
+  // WHY: optional so a host's v0.8.0 label literal still compiles; mergeLabels fills them from defaultLabels.
+  screenshotModes?: string;
+  retakeDelayed?: string;
+  retakeOnKey?: string;
+  removeScreenshot?: string;
+  screenshotRemoved?: string;
+  captureCountdown?: (seconds: number) => string;
+  captureKeyHint?: string;
+  captureCancel?: string;
   uploadLabel: string;
   uploadRejected: string;
   /** Shown after Send when the annotated PNG was over the backend's cap and was dropped. */
@@ -95,13 +96,16 @@ export type BugReportLabels = {
   copyManually: string;
 };
 
+/** `BugReportLabels` with every key present, as the components read them. */
+export type ResolvedBugReportLabels = Required<BugReportLabels>;
+
 /** The app's strings for the editor; `bug` and `feature` merge key by key. */
 export type BugReportLabelOverrides = Partial<Omit<BugReportLabels, "bug" | "feature">> & {
   bug?: Partial<BugReportKindLabels>;
   feature?: Partial<BugReportKindLabels>;
 };
 
-export const defaultLabels: BugReportLabels = {
+export const defaultLabels: ResolvedBugReportLabels = {
   bug: {
     title: "Report a bug",
     subtitle: "Mark up the screenshot and add details to help us fix the issue faster.",
@@ -205,7 +209,7 @@ export const defaultLabels: BugReportLabels = {
 };
 
 /** The app's strings over the English defaults. An explicit `undefined` keeps the default. */
-export function mergeLabels(overrides?: BugReportLabelOverrides): BugReportLabels {
+export function mergeLabels(overrides?: BugReportLabelOverrides): ResolvedBugReportLabels {
   const { bug, feature, ...rest } = overrides ?? {};
   return {
     ...defaultLabels,

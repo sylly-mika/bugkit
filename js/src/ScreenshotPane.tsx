@@ -23,7 +23,7 @@ import {
   type Tool,
 } from "./shapes.js";
 import { partProps, type BugReportClassNames } from "./theme.js";
-import type { BugReportLabels } from "./labels.js";
+import type { ResolvedBugReportLabels } from "./labels.js";
 
 export type ScreenshotPaneHandle = {
   toBlob(): Promise<Blob | null>;
@@ -36,7 +36,7 @@ export const UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
 
 export type ScreenshotPaneProps = {
   dataUrl: string | null;
-  labels: BugReportLabels;
+  labels: ResolvedBugReportLabels;
   onImageChosen: (dataUrl: string) => void;
   expanded: boolean;
   onToggleExpanded: () => void;

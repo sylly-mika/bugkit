@@ -16,12 +16,12 @@ import {
   type BugReportSubmit,
 } from "./payload.js";
 import type { CaptureResult } from "./capture.js";
-import { formatFiled, type BugReportKindLabels, type BugReportLabels } from "./labels.js";
+import { formatFiled, type BugReportKindLabels, type ResolvedBugReportLabels } from "./labels.js";
 import { DESCRIPTION_LIMIT, clearDraft, readDraft, writeDraft, type Draft } from "./draft.js";
 
 export type BugReportDialogProps = {
   capture: CaptureResult;
-  labels: BugReportLabels;
+  labels: ResolvedBugReportLabels;
   context: BugReportContext;
   environment: BugReportEnvironment;
   diagnostics: unknown;
