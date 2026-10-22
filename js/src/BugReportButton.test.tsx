@@ -354,6 +354,26 @@ describe("BugReportButton", () => {
       expect(await screen.findByRole("dialog")).toBeInTheDocument();
     });
 
+    it("does not retake on S with Ctrl, Meta or Alt", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+
+      renderButton();
+      await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+      await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
+      (document.activeElement as HTMLElement).blur();
+
+      await user.keyboard("{Control>}s{/Control}");
+      await user.keyboard("{Meta>}s{/Meta}");
+      await user.keyboard("{Alt>}s{/Alt}");
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(toPngMock).toHaveBeenCalledTimes(1);
+
+      await user.keyboard("s");
+      await waitFor(() => expect(toPngMock).toHaveBeenCalledTimes(2));
+    });
+
     it.each([
       ["delay", "Escape"],
       ["delay", "Cancel screenshot"],
