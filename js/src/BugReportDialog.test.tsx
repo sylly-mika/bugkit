@@ -2,7 +2,7 @@ import { cleanup, act, fireEvent, render, screen, waitFor, within } from "@testi
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog } from "./BugReportDialog.js";
-import type { BugReportKindLabels, ResolvedBugReportLabels } from "./labels.js";
+import { defaultLabels, type BugReportKindLabels, type ResolvedBugReportLabels } from "./labels.js";
 import { reportAsText } from "./payload.js";
 import type { BugReportContext, BugReportEnvironment } from "./payload.js";
 
@@ -13,8 +13,13 @@ const DRAFT_KEY = "bugkit:draft:v1";
 // stay a function.
 const TEMPLATES: Record<string, string> = { filed: "issue {number}" };
 
+// WHY: mergeLabels reads the keys of the labels it is given, so the fixtures list their keys.
 const kindLabels = (kind: "bug" | "feature") =>
-  new Proxy({} as BugReportKindLabels, { get: (_t, key) => `${kind}.${String(key)}` });
+  new Proxy({} as BugReportKindLabels, {
+    get: (_t, key) => `${kind}.${String(key)}`,
+    ownKeys: () => Object.keys(defaultLabels.bug),
+    getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
+  });
 
 const labels = new Proxy({} as ResolvedBugReportLabels, {
   get: (_t, key) => {
@@ -23,6 +28,8 @@ const labels = new Proxy({} as ResolvedBugReportLabels, {
     if (key === "zoomLevel") return (percent: number) => `${percent} %`;
     return TEMPLATES[String(key)] ?? String(key);
   },
+  ownKeys: () => Object.keys(defaultLabels),
+  getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
 });
 
 const context: BugReportContext = {
@@ -66,6 +73,23 @@ describe("BugReportDialog", () => {
     sessionStorage.clear();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("shows the default text for a v0.9.0 control when the host passes a v0.8.0 label set", () => {
+    const {
+      screenshotModes: _screenshotModes,
+      retakeDelayed: _retakeDelayed,
+      retakeOnKey: _retakeOnKey,
+      removeScreenshot: _removeScreenshot,
+      screenshotRemoved: _screenshotRemoved,
+      captureCountdown: _captureCountdown,
+      captureKeyHint: _captureKeyHint,
+      captureCancel: _captureCancel,
+      ...v080Labels
+    } = labels;
+    renderDialog({ labels: v080Labels, onRetake: vi.fn() });
+
+    expect(screen.getByRole("button", { name: "Retake in 3 seconds" })).toBeInTheDocument();
   });
 
   // The spec's rule is that everything the submission carries is visible before

@@ -1,3 +1,4 @@
+import type { BugReportDialogProps } from "./BugReportDialog.js";
 import { defaultLabels, formatFiled, mergeLabels, type BugReportKindLabels, type BugReportLabels } from "./labels.js";
 
 const v080Kind: BugReportKindLabels = {
@@ -110,4 +111,9 @@ test("a v0.8.0 label literal still merges, with the v0.9.0 strings from the defa
   expect(merged.retakeDelayed).toBe(defaultLabels.retakeDelayed);
   expect(merged.captureCancel).toBe(defaultLabels.captureCancel);
   expect(merged.captureCountdown(3)).toBe("Screenshot in 3… Press Esc to cancel.");
+});
+
+test("a v0.8.0 label literal is accepted by the dialog's labels prop", () => {
+  const dialogLabels: BugReportDialogProps["labels"] = v080Labels;
+  expect(dialogLabels).toBe(v080Labels);
 });

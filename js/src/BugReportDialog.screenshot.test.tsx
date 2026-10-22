@@ -2,7 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog, type BugReportDialogProps } from "./BugReportDialog.js";
-import type { BugReportKindLabels, ResolvedBugReportLabels } from "./labels.js";
+import { defaultLabels, type BugReportKindLabels, type ResolvedBugReportLabels } from "./labels.js";
 import type { BugReportContext, BugReportEnvironment } from "./payload.js";
 
 // The dialog's own file drives the real pane, which in jsdom can only ever
@@ -32,8 +32,13 @@ vi.mock("./ScreenshotPane.js", async () => {
 // stay a function.
 const TEMPLATES: Record<string, string> = { filed: "issue {number}" };
 
+// WHY: mergeLabels reads the keys of the labels it is given, so the fixtures list their keys.
 const kindLabels = (kind: "bug" | "feature") =>
-  new Proxy({} as BugReportKindLabels, { get: (_t, key) => `${kind}.${String(key)}` });
+  new Proxy({} as BugReportKindLabels, {
+    get: (_t, key) => `${kind}.${String(key)}`,
+    ownKeys: () => Object.keys(defaultLabels.bug),
+    getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
+  });
 
 const labels = new Proxy({} as ResolvedBugReportLabels, {
   get: (_t, key) => {
@@ -42,6 +47,8 @@ const labels = new Proxy({} as ResolvedBugReportLabels, {
     if (key === "zoomLevel") return (percent: number) => `${percent} %`;
     return TEMPLATES[String(key)] ?? String(key);
   },
+  ownKeys: () => Object.keys(defaultLabels),
+  getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
 });
 
 const context: BugReportContext = {

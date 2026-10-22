@@ -16,12 +16,12 @@ import {
   type BugReportSubmit,
 } from "./payload.js";
 import type { CaptureResult } from "./capture.js";
-import { formatFiled, type BugReportKindLabels, type ResolvedBugReportLabels } from "./labels.js";
+import { formatFiled, mergeLabels, type BugReportKindLabels, type BugReportLabels } from "./labels.js";
 import { DESCRIPTION_LIMIT, clearDraft, readDraft, writeDraft, type Draft } from "./draft.js";
 
 export type BugReportDialogProps = {
   capture: CaptureResult;
-  labels: ResolvedBugReportLabels;
+  labels: BugReportLabels;
   context: BugReportContext;
   environment: BugReportEnvironment;
   diagnostics: unknown;
@@ -88,7 +88,7 @@ function lockBodyScroll(): () => void {
 export function BugReportDialog(props: BugReportDialogProps) {
   const {
     capture,
-    labels,
+    labels: labelOverrides,
     context,
     environment,
     diagnostics,
@@ -101,6 +101,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
     onRetake,
     initialDraft,
   } = props;
+  const labels = mergeLabels(labelOverrides);
   useBugkitStyles(nonce);
 
   const [restored] = useState<Draft | null>(() => initialDraft ?? readDraft());
