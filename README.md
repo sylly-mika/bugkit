@@ -256,6 +256,17 @@ becomes the filed task's number.
 />
 ```
 
+**Screenshot options.** Opening the dialog still captures the page at once.
+The dialog then offers to retake the screenshot after a 3-second countdown,
+or on the S key once the page is arranged (S is ignored while typing in a
+field; Escape or Cancel screenshot cancels a pending retake), or to send
+without a screenshot. The hint bar is left out of the screenshot, and an
+inner element that is scrolled is captured scrolled. `screenshotModes={false}`
+hides the options. The texts are the label keys `screenshotModes`,
+`retakeDelayed`, `retakeOnKey`, `removeScreenshot`, `screenshotRemoved`,
+`captureCountdown`, `captureKeyHint` and `captureCancel`; the parts are
+`screenshot-modes`, `screenshot-mode`, `capture-hint` and `capture-cancel`.
+
 ## Style the dialog
 
 The dialog reads the page's `--color-*`, `--font-*` and `--radius-*` CSS
@@ -477,6 +488,7 @@ output shows it as `<redacted>`. The client never follows a redirect.
 | `classNames` | `BugReportClassNames` | none | Classes per part from `BUG_REPORT_PARTS`. |
 | `nonce` | `string` | none | CSP nonce for bugkit's `<style>` element. |
 | `technicalDetails` | `boolean` | `true` | Shows the Technical details disclosure; the details are sent either way. |
+| `screenshotModes` | `boolean` | `true` | Shows the dialog's screenshot options: retake after a 3-second countdown, retake on the S key, or send without a screenshot. |
 
 ### npm: `BugReport` (`@sylly-mika/bugkit/next`)
 
