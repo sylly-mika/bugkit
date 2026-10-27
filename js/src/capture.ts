@@ -178,28 +178,35 @@ function markBorderImages(
 ): { css: Promise<string>; unmark: () => void } {
   const marked: Element[] = [];
   const pending: Promise<string>[] = [];
-  for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
-    const layers = LAYER_PSEUDOS.flatMap((pseudo) => {
-      const url = borderImageURL(el, pseudo);
-      return url && allowedOrigins.includes(new URL(url).origin)
-        ? [{ pseudo, url, longhands: borderImageLonghands(el, pseudo) }]
-        : [];
-    });
-    if (layers.length === 0) {
-      continue;
+  try {
+    for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
+      const layers = LAYER_PSEUDOS.flatMap((pseudo) => {
+        const url = borderImageURL(el, pseudo);
+        return url && allowedOrigins.includes(new URL(url).origin)
+          ? [{ pseudo, url, longhands: borderImageLonghands(el, pseudo) }]
+          : [];
+      });
+      if (layers.length === 0) {
+        continue;
+      }
+      const n = String(marked.length);
+      el.setAttribute(LAYER_ATTRIBUTE, n);
+      marked.push(el);
+      for (const { pseudo, url, longhands } of layers) {
+        pending.push(
+          cachedRead(`seal:${url}`, () => toDataUrl(url)).then((dataUrl) =>
+            dataUrl
+              ? `[${LAYER_ATTRIBUTE}="${n}"]${pseudo} { border-image-source: url("${dataUrl}") !important; ${longhands} }`
+              : "",
+          ),
+        );
+      }
     }
-    const n = String(marked.length);
-    el.setAttribute(LAYER_ATTRIBUTE, n);
-    marked.push(el);
-    for (const { pseudo, url, longhands } of layers) {
-      pending.push(
-        cachedRead(`seal:${url}`, () => toDataUrl(url)).then((dataUrl) =>
-          dataUrl
-            ? `[${LAYER_ATTRIBUTE}="${n}"]${pseudo} { border-image-source: url("${dataUrl}") !important; ${longhands} }`
-            : "",
-        ),
-      );
+  } catch (error) {
+    for (const el of marked) {
+      el.removeAttribute(LAYER_ATTRIBUTE);
     }
+    throw error;
   }
   return {
     css: Promise.all(pending).then((rules) => rules.filter(Boolean).join("\n")),

@@ -185,11 +185,24 @@ describe("capturePage", () => {
     expect(document.querySelector(MARKS)).toBeNull();
   });
 
-  it("takes its marks off the page when marking the seal layers throws", async () => {
+  it("takes every mark off the page when a later element throws while marking", async () => {
     pageWithMarkedElements();
-    vi.spyOn(window, "getComputedStyle").mockImplementation(() => {
-      throw new Error("detached");
-    });
+    const button = document.querySelector("button") as HTMLButtonElement;
+    const late = document.createElement("span");
+    document.body.append(late);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (el: Element, state?: string | null) => {
+        if (el === late) {
+          throw new Error("detached");
+        }
+        return {
+          getPropertyValue: (prop: string) =>
+            el === button && (state || "") === "::before" && prop === "border-image-source"
+              ? 'url("http://localhost:3000/ink/brush-seal.webp")'
+              : "",
+        } as unknown as CSSStyleDeclaration;
+      },
+    );
 
     await capturePage().catch(() => undefined);
 
