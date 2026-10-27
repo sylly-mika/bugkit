@@ -15,6 +15,11 @@ describe("capturePage", () => {
     document.body.innerHTML = "";
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("returns the data URL when html-to-image resolves", async () => {
     toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
 
@@ -167,6 +172,28 @@ describe("capturePage", () => {
 
     await expect(capturePage()).resolves.toEqual({ ok: true, dataUrl: "data:image/png;base64,AAAA" });
     expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
+  });
+
+  it("inlines a border-image seal on a pseudo-element layer into the capture", async () => {
+    const button = document.createElement("button");
+    button.className = "ink-seal";
+    document.body.append(button);
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (el: Element, pseudo?: string | null) => {
+        const source =
+          el === button && pseudo === "::before" ? 'url("http://localhost:3000/ink/brush-seal.webp")' : "none";
+        return { getPropertyValue: (prop: string) => (prop === "border-image-source" ? source : "") } as unknown as CSSStyleDeclaration;
+      },
+    );
+    vi.stubGlobal("fetch", vi.fn(async () => ({ blob: async () => new Blob(["seal"], { type: "image/webp" }) })));
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+
+    const css = String(toPngMock.mock.calls[0][1]?.fontEmbedCSS);
+    expect(css).toContain("::before");
+    expect(css).toContain("data:image/webp;base64,c2VhbA==");
+    expect(button.getAttribute("data-bugkit-layer")).toBeNull();
   });
 
   // See viewportFraming in capture.ts: a viewport-sized picture of a

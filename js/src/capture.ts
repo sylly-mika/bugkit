@@ -126,6 +126,72 @@ function markScrolled(root: HTMLElement): { css: string; unmark: () => void } {
   };
 }
 
+const LAYER_ATTRIBUTE = "data-bugkit-layer";
+const LAYER_PSEUDOS = ["", "::before", "::after"];
+
+function borderImageURL(el: Element, pseudo: string): string | null {
+  const source = window.getComputedStyle(el, pseudo || null).getPropertyValue("border-image-source");
+  const match = /url\(\s*["']?([^"')]+?)["']?\s*\)/.exec(source);
+  try {
+    return match ? new URL(match[1], document.baseURI).href : null;
+  } catch {
+    return null;
+  }
+}
+
+async function toDataUrl(url: string): Promise<string> {
+  const blob = await (await fetch(url)).blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * WHY: html-to-image inlines only background images into the clone, so a
+ * border-image seal such as `.ink-seal::before` reaches the picture as a
+ * relative URL that the SVG cannot load, and the layer paints nothing. The
+ * seal is read from the live page and set on the clone as a data URL. A seal
+ * that cannot be read is left out rather than failing the capture.
+ */
+function markBorderImages(
+  root: HTMLElement,
+  allowedOrigins: string[],
+): { css: Promise<string>; unmark: () => void } {
+  const marked: Element[] = [];
+  const pending: Promise<string>[] = [];
+  for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
+    const layers = LAYER_PSEUDOS.flatMap((pseudo) => {
+      const url = borderImageURL(el, pseudo);
+      return url && allowedOrigins.includes(new URL(url).origin) ? [{ pseudo, url }] : [];
+    });
+    if (layers.length === 0) {
+      continue;
+    }
+    const n = String(marked.length);
+    el.setAttribute(LAYER_ATTRIBUTE, n);
+    marked.push(el);
+    for (const { pseudo, url } of layers) {
+      pending.push(
+        toDataUrl(url).then(
+          (dataUrl) => `[${LAYER_ATTRIBUTE}="${n}"]${pseudo} { border-image-source: url("${dataUrl}") !important; }`,
+          () => "",
+        ),
+      );
+    }
+  }
+  return {
+    css: Promise.all(pending).then((rules) => rules.filter(Boolean).join("\n")),
+    unmark: () => {
+      for (const el of marked) {
+        el.removeAttribute(LAYER_ATTRIBUTE);
+      }
+    },
+  };
+}
+
 /**
  * WHY: the page's fonts do not change between reports, and html-to-image would
  * otherwise walk every stylesheet and fetch every font again on each capture. A
@@ -167,9 +233,13 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
   });
 
   const scrolled = markScrolled(root);
-  const capture: Promise<CaptureResult> = (captureFonts ? pageFontCSS() : Promise.resolve(null))
-    .then((fonts) => {
-      const fontEmbedCSS = [fonts, scrolled.css].filter(Boolean).join("\n");
+  const borders = markBorderImages(root, allowedOrigins);
+  const capture: Promise<CaptureResult> = Promise.all([
+    captureFonts ? pageFontCSS() : Promise.resolve(null),
+    borders.css,
+  ])
+    .then(([fonts, borderCSS]) => {
+      const fontEmbedCSS = [fonts, scrolled.css, borderCSS].filter(Boolean).join("\n");
       return toPng(root, {
         // Deliberately off. html-to-image appends `?<timestamp>` to EVERY resource
         // URL when it is on, blob: included — and a blob URL with a query string
@@ -204,5 +274,6 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
   } finally {
     clearTimeout(timer);
     scrolled.unmark();
+    borders.unmark();
   }
 }
