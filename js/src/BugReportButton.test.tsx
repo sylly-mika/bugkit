@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { getFontEmbedCSS, toPng } from "html-to-image";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -454,26 +454,42 @@ describe("BugReportButton", () => {
     });
 
     it("never marks the notice as leaving with reduced motion", async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      // WHY: fake timers without shouldAdvanceTime, and fireEvent instead of user-event: the clock
+      // must not move on its own, or the notice's 5 s timer drifts past the exact 4 999 ms check.
+      vi.useFakeTimers();
+      const settle = async (found: () => unknown) => {
+        for (let i = 0; i < 50 && !found(); i++) await act(async () => {});
+      };
       const original = window.matchMedia;
       window.matchMedia = vi.fn().mockImplementation((query: string) => ({
         matches: query.includes("reduce"),
       })) as unknown as typeof window.matchMedia;
 
+      const leaving: Element[] = [];
+      const observer = new MutationObserver((records) => {
+        for (const record of records) leaving.push(record.target as Element);
+      });
+      observer.observe(document.body, { attributes: true, attributeFilter: ["data-leaving"], subtree: true });
+
       try {
         renderButton();
-        await sendReport(user);
-        const notice = (await screen.findByText(noticeText, { selector: noticeSelector })).parentElement;
-        expect(notice).not.toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+        await settle(() => screen.queryByLabelText(defaultLabels.summaryLabel));
+        fireEvent.change(screen.getByLabelText(defaultLabels.summaryLabel), { target: { value: "Summary" } });
+        fireEvent.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
+        await settle(() => screen.queryByText(noticeText, { selector: noticeSelector }));
+        expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
 
-        act(() => vi.advanceTimersByTime(4_900));
-        expect(notice).not.toHaveAttribute("data-leaving");
+        act(() => vi.advanceTimersByTime(4_999));
+        expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
 
-        act(() => vi.advanceTimersByTime(200));
-        expect(notice).not.toHaveAttribute("data-leaving");
+        act(() => vi.advanceTimersByTime(1));
         expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+
+        await act(async () => {});
+        expect(leaving).toEqual([]);
       } finally {
+        observer.disconnect();
         window.matchMedia = original;
       }
     });
