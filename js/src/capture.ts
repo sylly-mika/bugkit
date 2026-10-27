@@ -267,7 +267,7 @@ function pageFontCSS(): Promise<string | null> {
     getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" })
       .then((css) => (FACE_WITHOUT_SOURCE.test(css) ? getFontEmbedCSS(document.body) : css))
       .then((css) => {
-        if (/src:\s*url\((?!["']?data:)/.test(css)) {
+        if (/src:[^}]*?\burl\((?!["']?data:)/.test(css)) {
           reads.delete("fonts");
         }
         return css;

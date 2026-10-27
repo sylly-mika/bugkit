@@ -393,6 +393,36 @@ describe("capturePage", () => {
     expect(toPngMock.mock.calls[0][1]?.fontEmbedCSS).toContain("src:url(/font-missing.ttf)");
   });
 
+  it("reads the page's fonts again when a face's unembedded url follows a local source", async () => {
+    getFontEmbedCSSMock.mockResolvedValue('@font-face{font-family:Mincho;src:local("Mincho"),url(/font-missing.woff2) format("woff2")}');
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+    await capturePage();
+
+    expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the page's fonts again when a face's unembedded url follows a data url", async () => {
+    getFontEmbedCSSMock.mockResolvedValue('@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA) format("woff2"),url(/font-missing.ttf)}');
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+    await capturePage();
+
+    expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the page's fonts cached when every url in a face is a data url", async () => {
+    getFontEmbedCSSMock.mockResolvedValue('@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA) format("woff2"),url(data:font/ttf;base64,BBBB) format("truetype")}');
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+    await capturePage();
+
+    expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(1);
+  });
+
   it("fetches a seal once across captures", async () => {
     pageWithSealLayer();
     const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => new Blob(["seal"], { type: "image/webp" }) }));
