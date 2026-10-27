@@ -97,10 +97,10 @@ function viewportFraming(root: HTMLElement) {
 const SCROLL_ATTRIBUTE = "data-bugkit-scroll";
 
 /**
- * WHY: html-to-image puts fontEmbedCSS into the clone only, and the clone copies
- * attributes, so the marks and their rules reach the picture while the live
- * page never sees them. The marks are removed by the caller once the capture
- * settles.
+ * WHY: html-to-image has no onCloneNode hook, so the scrolled elements carry
+ * their marker attribute on the live page only while a capture runs: the clone
+ * copies attributes, and fontEmbedCSS reaches the clone alone. The marks are
+ * removed when the capture ends, whatever its outcome.
  */
 function markScrolled(root: HTMLElement): { css: string; unmark: () => void } {
   const rules: string[] = [];
@@ -168,7 +168,9 @@ async function toDataUrl(url: string): Promise<string> {
  * border-image seal such as `.ink-seal::before` reaches the picture as a
  * relative URL that the SVG cannot load, and the layer paints nothing. The
  * seal is read from the live page and set on the clone as a data URL. A seal
- * that cannot be read is left out rather than failing the capture.
+ * that cannot be read is left out rather than failing the capture. As with the
+ * scroll marks, the layer marker is on the live element only while a capture
+ * runs, and it is removed when the capture ends.
  */
 function markBorderImages(
   root: HTMLElement,
