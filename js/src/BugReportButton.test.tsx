@@ -1,16 +1,21 @@
 import type { ReactNode } from "react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { toPng } from "html-to-image";
+import { getFontEmbedCSS, toPng } from "html-to-image";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportButton } from "./BugReportButton.js";
+import { clearPageFonts } from "./capture.js";
 import { defaultLabels } from "./labels.js";
 
-vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
+vi.mock("html-to-image", () => ({ toPng: vi.fn(), getFontEmbedCSS: vi.fn() }));
 
 const toPngMock = vi.mocked(toPng);
+const getFontEmbedCSSMock = vi.mocked(getFontEmbedCSS);
 
 const getContext = () => ({ area: "/projects/7/board", version: "3862535" });
+// WHY: the capture hint and the sent-notice live region both have role="status"; the hint is the one inside its part.
+const captureHintText = () =>
+  document.querySelector('[data-bugkit="capture-hint"] [role="status"]')?.textContent;
 
 function renderButton(children?: ReactNode) {
   const submit = vi.fn().mockResolvedValue({ id: "0190d1c2-0000-7000-8000-000000000141", number: 141 });
@@ -31,6 +36,9 @@ describe("BugReportButton", () => {
   // with nobody listening.
   beforeEach(() => {
     toPngMock.mockReset();
+    getFontEmbedCSSMock.mockReset();
+    getFontEmbedCSSMock.mockResolvedValue("");
+    clearPageFonts();
   });
 
   // The host passes only the words it changes; the rest come from the English
@@ -133,6 +141,30 @@ describe("BugReportButton", () => {
     other.src = "https://cdn.other.test/a.png";
     expect(filter!(own)).toBe(true);
     expect(filter!(other)).toBe(false);
+  });
+
+  it("embeds the page's web fonts in the screenshot unless captureFonts is off", async () => {
+    const user = userEvent.setup();
+    const fonts = "@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}";
+    getFontEmbedCSSMock.mockResolvedValue(fonts);
+    toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+
+    const { unmount } = render(
+      <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} />,
+    );
+    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await screen.findByRole("dialog");
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ fontEmbedCSS: fonts });
+    unmount();
+
+    clearPageFonts();
+    toPngMock.mockClear();
+    render(
+      <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} captureFonts={false} />,
+    );
+    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await screen.findByRole("dialog");
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
   });
 
   // Two presses in one tick both read the render's `busy` as false; only a
@@ -272,6 +304,240 @@ describe("BugReportButton", () => {
     await waitFor(() => expect(launcher).toHaveFocus());
   });
 
+  describe("a sent report", () => {
+    const noticeText = "Report sent. Its number is #141.";
+    const noticeSelector = '[data-bugkit="notice-text"]';
+
+    beforeEach(() => {
+      toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function sendReport(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+      await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Summary");
+      await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
+    }
+
+    it("closes the dialog, returns focus to the launcher, and shows the notice with the number", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
+
+      await sendReport(user);
+
+      expect(await screen.findByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByRole("status")).toHaveTextContent(noticeText);
+      await waitFor(() => expect(launcher).toHaveFocus());
+    });
+
+    it("fills a polite live region that was already there, so the sentence is announced once", async () => {
+      const user = userEvent.setup();
+      renderButton();
+
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+      expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+      expect(screen.getByRole("status")).toHaveAttribute("aria-atomic", "true");
+
+      await sendReport(user);
+
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(noticeText));
+      const live = Array.from(document.querySelectorAll('[aria-live], [role="status"]')).filter((element) =>
+        element.textContent?.includes(noticeText),
+      );
+      expect(live).toHaveLength(1);
+    });
+
+    it("leaves after about five seconds, not before", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderButton();
+
+      await sendReport(user);
+      expect(await screen.findByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(2_000));
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+    });
+
+    it("stays while the pointer is over it", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderButton();
+
+      await sendReport(user);
+      const notice = await screen.findByText(noticeText, { selector: noticeSelector });
+
+      await user.hover(notice);
+      act(() => vi.advanceTimersByTime(10_000));
+      expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+      await user.unhover(notice);
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+    });
+
+    it("stays while it has focus, even after the pointer has left", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderButton();
+
+      await sendReport(user);
+      const notice = await screen.findByText(noticeText, { selector: noticeSelector });
+      const close = screen.getByRole("button", { name: defaultLabels.close });
+
+      act(() => close.focus());
+      await user.hover(notice);
+      await user.unhover(notice);
+      act(() => vi.advanceTimersByTime(10_000));
+      expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+      act(() => close.blur());
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+    });
+
+    it("drops the notice at once with reduced motion", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const original = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("reduce"),
+      })) as unknown as typeof window.matchMedia;
+
+      try {
+        renderButton();
+        await sendReport(user);
+        expect(await screen.findByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+        act(() => vi.advanceTimersByTime(5_100));
+        expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+      } finally {
+        window.matchMedia = original;
+      }
+    });
+
+    it("gives a second notice of the same number its full time", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderButton();
+
+      await sendReport(user);
+      expect(await screen.findByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(3_000));
+
+      await sendReport(user);
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      act(() => vi.advanceTimersByTime(3_000));
+      expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(2_500));
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+    });
+
+    it("goes at once when its close button is pressed", async () => {
+      const user = userEvent.setup();
+      renderButton();
+
+      await sendReport(user);
+      await user.click(await screen.findByRole("button", { name: defaultLabels.close }));
+
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+      expect(screen.queryByRole("button", { name: defaultLabels.close })).toBeNull();
+    });
+
+    it("never marks the notice as leaving with reduced motion", async () => {
+      // WHY: fake timers without shouldAdvanceTime, and fireEvent instead of user-event: the clock
+      // must not move on its own, or the notice's 5 s timer drifts past the exact 4 999 ms check.
+      vi.useFakeTimers();
+      const settle = async (found: () => unknown) => {
+        for (let i = 0; i < 50 && !found(); i++) await act(async () => {});
+      };
+      const original = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("reduce"),
+      })) as unknown as typeof window.matchMedia;
+
+      const leaving: Element[] = [];
+      const observer = new MutationObserver((records) => {
+        for (const record of records) leaving.push(record.target as Element);
+      });
+      observer.observe(document.body, { attributes: true, attributeFilter: ["data-leaving"], subtree: true });
+
+      try {
+        renderButton();
+        fireEvent.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+        await settle(() => screen.queryByLabelText(defaultLabels.summaryLabel));
+        fireEvent.change(screen.getByLabelText(defaultLabels.summaryLabel), { target: { value: "Summary" } });
+        fireEvent.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
+        await settle(() => screen.queryByText(noticeText, { selector: noticeSelector }));
+        expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+        act(() => vi.advanceTimersByTime(4_999));
+        expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+        act(() => vi.advanceTimersByTime(1));
+        expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+
+        await act(async () => {});
+        expect(leaving).toEqual([]);
+      } finally {
+        observer.disconnect();
+        window.matchMedia = original;
+      }
+    });
+
+    it("hands the number to onSent and shows no notice of its own", async () => {
+      const user = userEvent.setup();
+      const onSent = vi.fn();
+      const submit = vi
+        .fn()
+        .mockResolvedValue({ id: "0190d1c2-0000-7000-8000-000000000141", number: 141 });
+      render(
+        <BugReportButton
+          submit={submit}
+          getContext={getContext}
+          diagnostics={() => []}
+          onSent={onSent}
+        />,
+      );
+
+      await sendReport(user);
+
+      await waitFor(() => expect(onSent).toHaveBeenCalledWith({ number: 141 }));
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+    });
+
+    it("keeps the sent view behind confirmation=\"dialog\"", async () => {
+      const user = userEvent.setup();
+      const submit = vi
+        .fn()
+        .mockResolvedValue({ id: "0190d1c2-0000-7000-8000-000000000141", number: 141 });
+      render(
+        <BugReportButton
+          submit={submit}
+          getContext={getContext}
+          diagnostics={() => []}
+          confirmation="dialog"
+        />,
+      );
+
+      await sendReport(user);
+
+      expect(await screen.findByText(defaultLabels.successTitle)).toBeInTheDocument();
+      expect(screen.getByText("The report number is #141.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: defaultLabels.close })).toBeInTheDocument();
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+    });
+  });
+
   describe("screenshot retakes", () => {
     beforeEach(() => {
       window.sessionStorage.clear();
@@ -304,9 +570,9 @@ describe("BugReportButton", () => {
         await user.click(screen.getByRole("button", { name: defaultLabels.retakeDelayed }));
 
         expect(screen.queryByRole("dialog")).toBeNull();
-        expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureCountdown(3));
+        expect(captureHintText()).toBe(defaultLabels.captureCountdown(3));
         await act(() => vi.advanceTimersByTimeAsync(1000));
-        expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureCountdown(2));
+        expect(captureHintText()).toBe(defaultLabels.captureCountdown(2));
         await act(() => vi.advanceTimersByTimeAsync(1000));
         expect(toPngMock).toHaveBeenCalledTimes(1);
         await act(() => vi.advanceTimersByTimeAsync(1000));
@@ -338,7 +604,7 @@ describe("BugReportButton", () => {
       await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
       await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
 
-      expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureKeyHint);
+      expect(captureHintText()).toBe(defaultLabels.captureKeyHint);
       const bar = document.querySelector<HTMLElement>('[data-bugkit="capture-hint"]');
       expect(bar).toHaveClass("app-hint");
 

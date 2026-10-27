@@ -31,6 +31,8 @@ export type BugReportLabels = {
   summaryLabel: string;
   summaryPlaceholder: string;
   summaryRequired: string;
+  // WHY: optional so a v0.9.0 label literal still compiles; mergeLabels fills it from defaultLabels.
+  summaryOrDescriptionRequired?: string;
   /** Live character count against the backend's cap, e.g. "120 / 5000". */
   characterCount: (used: number, limit: number) => string;
   saved: string;
@@ -89,6 +91,8 @@ export type BugReportLabels = {
   close: string;
   successTitle: string;
   filed: string;
+  // WHY: optional so a v0.9.0 label literal still compiles; mergeLabels fills it from defaultLabels.
+  sentNotice?: string;
   failureTitle: string;
   copyToClipboard: string;
   copied: string;
@@ -144,6 +148,7 @@ export const defaultLabels: ResolvedBugReportLabels = {
   summaryLabel: "Summary",
   summaryPlaceholder: "One line that sums it up",
   summaryRequired: "Please add a summary.",
+  summaryOrDescriptionRequired: "Add a summary or describe what happened.",
   characterCount: (used, limit) => `${used} / ${limit}`,
   saved: "All changes saved",
   technicalTitle: "Technical details",
@@ -201,6 +206,7 @@ export const defaultLabels: ResolvedBugReportLabels = {
   close: "Close",
   successTitle: "Thank you. Your report was sent.",
   filed: "The report number is #{number}.",
+  sentNotice: "Report sent. Its number is #{number}.",
   failureTitle: "The report could not be sent.",
   copyToClipboard: "Copy the report",
   copied: "Copied",

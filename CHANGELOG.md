@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.10.0
+
+- npm: a report with a summary needs no description. "What happened?" is
+  required only when Summary is empty. With neither, the form shows
+  `summaryOrDescriptionRequired` ("Add a summary or describe what happened.")
+  under "What happened?" and sends nothing. The same rule holds for a feature
+  request.
+- npm: a sent report closes the dialog and shows a notice for about 5 seconds,
+  `sentNotice` ("Report sent. Its number is #{number}."), fixed at the bottom
+  right with a close button. It stays while the pointer is over it or it has
+  focus. The sent view is no longer shown by default. `BugReportButton` and
+  `BugReport` take `onSent({ number })`: when set, bugkit calls it after a send
+  and shows no notice of its own. `confirmation` (`"notice"`, the default, or
+  `"dialog"`) picks the confirmation; `"dialog"` keeps the v0.9.0 sent view.
+- npm: the screenshot embeds the page's web fonts, so labels wrap as they do on
+  the page, in whatever format the page loads them. `BugReportButton` takes
+  `captureFonts` (default `true`); `false` skips the embedding for a host where
+  it is slow. A font or image that has not loaded after about 1.5 seconds is
+  left out, and the screenshot is still taken.
+- npm: the screenshot draws a border-image layer on an element, such as a
+  primary button's seal, in its shape as on the page, not as a solid box.
+- go: the intake parser accepts an empty description when the summary is not
+  blank. With both blank it refuses with
+  `A summary or a description is required.`
+- Nothing is removed from the API. The summary-only message (`summaryRequired`)
+  and its element `#bug-report-summary-error` are no longer shown, since a
+  summary alone is never required; a host's text for it is unused. The label
+  name stays. The sent view is kept behind confirmation="dialog".
+
 ## v0.9.0
 
 - npm: the dialog offers screenshot options: retake the screenshot after a

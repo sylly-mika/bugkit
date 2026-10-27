@@ -46,6 +46,10 @@ export const BUG_REPORT_PARTS = [
   "screenshot-mode",
   "capture-hint",
   "capture-cancel",
+  "notice-region",
+  "notice",
+  "notice-text",
+  "notice-close",
 ] as const;
 
 export type BugReportPart = (typeof BUG_REPORT_PARTS)[number];
@@ -333,6 +337,49 @@ export const BUGKIT_CSS = `@layer theme, base, bugkit, components, utilities;
     border-radius: var(--radius-md, 12px);
     background: var(--color-card, #ffffff);
     color: var(--color-card-foreground, #171717);
+  }
+  :where([data-bugkit="notice-region"]) {
+    position: fixed;
+    bottom: 16px;
+    right: 16px;
+    z-index: 55;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+  }
+  :where([data-bugkit="notice"]) {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 360px;
+    padding: 8px 12px;
+    border: 1px solid var(--color-border, #e5e5e5);
+    border-radius: var(--radius-md, 12px);
+    background: var(--color-card, #ffffff);
+    color: var(--color-card-foreground, #171717);
+    transition: opacity 300ms ease;
+  }
+  :where([data-bugkit="notice"][data-leaving]) {
+    opacity: 0;
+  }
+  :where([data-bugkit="notice-text"]) {
+    margin: 0px;
+  }
+  :where([data-bugkit="notice-close"]) {
+    height: 28px;
+    padding: 0px 10px;
+    border: 1px solid var(--color-border, #e5e5e5);
+    border-radius: var(--radius-sm, 8px);
+    background: transparent;
+    color: var(--color-foreground, #171717);
+    font: inherit;
+    cursor: pointer;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :where([data-bugkit="notice"]) {
+      transition: none;
+    }
   }
   :where([data-bugkit="toolbar"]) {
     display: flex;

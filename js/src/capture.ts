@@ -1,4 +1,4 @@
-import { toPng } from "html-to-image";
+import { getFontEmbedCSS, toPng } from "html-to-image";
 
 export const CAPTURE_TIMEOUT_MS = 5_000;
 export const CAPTURE_NODE_CAP = 3_000;
@@ -12,6 +12,7 @@ export type CaptureOptions = {
   nodeCap?: number;
   timeoutMs?: number;
   allowedImageOrigins?: string[];
+  captureFonts?: boolean;
 };
 
 /** The launcher marks itself with this, and is dropped from its own screenshot. */
@@ -96,10 +97,10 @@ function viewportFraming(root: HTMLElement) {
 const SCROLL_ATTRIBUTE = "data-bugkit-scroll";
 
 /**
- * WHY: html-to-image puts fontEmbedCSS into the clone only, and the clone copies
- * attributes, so the marks and their rules reach the picture while the live
- * page never sees them. The marks are removed by the caller once the capture
- * settles.
+ * WHY: html-to-image has no onCloneNode hook, so the scrolled elements carry
+ * their marker attribute on the live page only while a capture runs: the clone
+ * copies attributes, and fontEmbedCSS reaches the clone alone. The marks are
+ * removed when the capture ends, whatever its outcome.
  */
 function markScrolled(root: HTMLElement): { css: string; unmark: () => void } {
   const rules: string[] = [];
@@ -125,10 +126,175 @@ function markScrolled(root: HTMLElement): { css: string; unmark: () => void } {
   };
 }
 
+const LAYER_ATTRIBUTE = "data-bugkit-layer";
+const LAYER_PSEUDOS = ["", "::before", "::after"];
+
+function borderImageURL(el: Element, pseudo: string): string | null {
+  const source = window.getComputedStyle(el, pseudo || null).getPropertyValue("border-image-source");
+  const match = /url\(\s*["']?([^"')]+?)["']?\s*\)/.exec(source);
+  try {
+    return match ? new URL(match[1], document.baseURI).href : null;
+  } catch {
+    return null;
+  }
+}
+
+function borderImageLonghands(el: Element, pseudo: string): string {
+  const style = window.getComputedStyle(el, pseudo || null);
+  return ["slice", "width", "outset", "repeat"]
+    .map((name) => {
+      const value = style.getPropertyValue(`border-image-${name}`);
+      return value ? `border-image-${name}: ${value} !important;` : "";
+    })
+    .join(" ");
+}
+
+async function toDataUrl(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`seal responded ${response.status}`);
+  }
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+/**
+ * WHY: html-to-image inlines only background images into the clone, so a
+ * border-image seal such as `.ink-seal::before` reaches the picture as a
+ * relative URL that the SVG cannot load, and the layer paints nothing. The
+ * seal is read from the live page and set on the clone as a data URL. A seal
+ * that cannot be read is left out rather than failing the capture. As with the
+ * scroll marks, the layer marker is on the live element only while a capture
+ * runs, and it is removed when the capture ends.
+ */
+function markBorderImages(
+  root: HTMLElement,
+  allowedOrigins: string[],
+): { css: Promise<string>; unmark: () => void } {
+  const marked: Element[] = [];
+  const pending: Promise<string>[] = [];
+  try {
+    for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
+      const layers = LAYER_PSEUDOS.flatMap((pseudo) => {
+        const url = borderImageURL(el, pseudo);
+        return url && allowedOrigins.includes(new URL(url).origin)
+          ? [{ pseudo, url, longhands: borderImageLonghands(el, pseudo) }]
+          : [];
+      });
+      if (layers.length === 0) {
+        continue;
+      }
+      const n = String(marked.length);
+      el.setAttribute(LAYER_ATTRIBUTE, n);
+      marked.push(el);
+      for (const { pseudo, url, longhands } of layers) {
+        pending.push(
+          cachedRead(`seal:${url}`, () => toDataUrl(url)).then((dataUrl) =>
+            dataUrl
+              ? `[${LAYER_ATTRIBUTE}="${n}"]${pseudo} { border-image-source: url("${dataUrl}") !important; ${longhands} }`
+              : "",
+          ),
+        );
+      }
+    }
+  } catch (error) {
+    for (const el of marked) {
+      el.removeAttribute(LAYER_ATTRIBUTE);
+    }
+    throw error;
+  }
+  return {
+    css: Promise.all(pending).then((rules) => rules.filter(Boolean).join("\n")),
+    unmark: () => {
+      for (const el of marked) {
+        el.removeAttribute(LAYER_ATTRIBUTE);
+      }
+    },
+  };
+}
+
+const READ_BOUND_MS = 1_500;
+
+function within<T>(pending: Promise<T>, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), READ_BOUND_MS);
+  });
+  return Promise.race([pending.catch(() => fallback), bound]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * WHY: the page's fonts and seals do not change between reports, and
+ * html-to-image would otherwise walk every stylesheet and fetch every font again
+ * on each capture. A read that fails is dropped, so the next capture reads it
+ * again; so is a font list that still holds a font's url, which html-to-image
+ * leaves there when it cannot fetch the font (a 404 is not a rejected read). A
+ * read that is still pending after READ_BOUND_MS is left out of this
+ * capture, and the read itself is kept, so a slow font serves the captures
+ * after it.
+ */
+const reads = new Map<string, Promise<string>>();
+
+export function clearPageFonts(): void {
+  reads.clear();
+}
+
+function cachedRead(key: string, read: () => Promise<string>): Promise<string | null> {
+  let pending = reads.get(key);
+  if (!pending) {
+    const fresh = Promise.resolve().then(read);
+    fresh.catch(() => reads.delete(key));
+    reads.set(key, fresh);
+    pending = fresh;
+  }
+  return within(pending, null);
+}
+
+/**
+ * WHY: with woff2 preferred, html-to-image leaves a face declared in another
+ * format as a bare `@font-face` with no `src`, so that face is read again in
+ * whatever format the page declares.
+ */
+const FACE_WITHOUT_SOURCE = /@font-face\s*\{(?![^}]*\bsrc\s*:)/;
+
+function pageFontCSS(): Promise<string | null> {
+  return cachedRead("fonts", () =>
+    getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" })
+      .then((css) => (FACE_WITHOUT_SOURCE.test(css) ? getFontEmbedCSS(document.body) : css))
+      .then((css) => {
+        if (/src:[^}]*?\burl\((?!["']?data:)/.test(css)) {
+          reads.delete("fonts");
+        }
+        return css;
+      }),
+  );
+}
+
+/**
+ * WHY: marking can throw after the scroll marks are set, and the finally in
+ * capturePage only runs once marking has returned, so the scroll marks are
+ * taken off here before the error leaves.
+ */
+function markPage(root: HTMLElement, allowedOrigins: string[]) {
+  const scrolled = markScrolled(root);
+  try {
+    return { scrolled, borders: markBorderImages(root, allowedOrigins) };
+  } catch (error) {
+    scrolled.unmark();
+    throw error;
+  }
+}
+
 export async function capturePage(options: CaptureOptions = {}): Promise<CaptureResult> {
   const root = options.root ?? document.body;
   const nodeCap = options.nodeCap ?? CAPTURE_NODE_CAP;
   const timeoutMs = options.timeoutMs ?? CAPTURE_TIMEOUT_MS;
+  const captureFonts = options.captureFonts ?? true;
   const allowedOrigins = [window.location.origin, ...(options.allowedImageOrigins ?? [])];
 
   // Counted first, never raced. toPng walks and clones the tree synchronously,
@@ -138,38 +304,45 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
     return { ok: false, reason: "too-many-nodes" };
   }
 
+  const { scrolled, borders } = markPage(root, allowedOrigins);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const timeout = new Promise<CaptureResult>((resolve) => {
     timer = setTimeout(() => resolve({ ok: false, reason: "timed-out" }), timeoutMs);
   });
 
-  const scrolled = markScrolled(root);
-  const capture: Promise<CaptureResult> = toPng(root, {
-    // Deliberately off. html-to-image appends `?<timestamp>` to EVERY resource
-    // URL when it is on, blob: included — and a blob URL with a query string
-    // does not resolve, so every image the panel serves through
-    // URL.createObjectURL comes back ERR_FILE_NOT_FOUND and lands on the
-    // placeholder below. That is the floor plan and every station pin icon on
-    // the plan editor: the one page whose whole content is an image.
-    cacheBust: false,
-    // Left to itself html-to-image renders at devicePixelRatio, so a long page
-    // on a 2x display rasterises to four times the pixels and sails past the
-    // backend's 5 MB PNG cap. A bug report needs legible, not retina.
-    pixelRatio: 1,
-    // The panel declares no @font-face, so the font pass has nothing to inline
-    // and only costs a walk over live stylesheets it is willing to mutate.
-    skipFonts: true,
-    filter: captureFilter(allowedOrigins),
-    // A single image that cannot be inlined leaves a transparent hole rather
-    // than rejecting the export, so a page with one broken asset still yields
-    // a usable screenshot.
-    imagePlaceholder:
-      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-    // A caller's own root is photographed whole; the page is framed.
-    ...(root === document.body ? viewportFraming(root) : {}),
-    ...(scrolled.css ? { fontEmbedCSS: scrolled.css } : {}),
-  })
+  const capture: Promise<CaptureResult> = Promise.all([
+    captureFonts ? pageFontCSS() : Promise.resolve(null),
+    borders.css,
+  ])
+    .then(([fonts, borderCSS]) => {
+      const fontEmbedCSS = [fonts, scrolled.css, borderCSS].filter(Boolean).join("\n");
+      return toPng(root, {
+        // Deliberately off. html-to-image appends `?<timestamp>` to EVERY resource
+        // URL when it is on, blob: included — and a blob URL with a query string
+        // does not resolve, so every image the panel serves through
+        // URL.createObjectURL comes back ERR_FILE_NOT_FOUND and lands on the
+        // placeholder below. That is the floor plan and every station pin icon on
+        // the plan editor: the one page whose whole content is an image.
+        cacheBust: false,
+        // Left to itself html-to-image renders at devicePixelRatio, so a long page
+        // on a 2x display rasterises to four times the pixels and sails past the
+        // backend's 5 MB PNG cap. A bug report needs legible, not retina.
+        pixelRatio: 1,
+        // WHY: a label set in the page's web font wraps differently in the browser's
+        // fallback face; the pass inlines the @font-face rules the page uses.
+        skipFonts: !fonts,
+        filter: captureFilter(allowedOrigins),
+        // A single image that cannot be inlined leaves a transparent hole rather
+        // than rejecting the export, so a page with one broken asset still yields
+        // a usable screenshot.
+        imagePlaceholder:
+          "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+        // A caller's own root is photographed whole; the page is framed.
+        ...(root === document.body ? viewportFraming(root) : {}),
+        ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
+      });
+    })
     .then((dataUrl): CaptureResult => ({ ok: true, dataUrl }))
     .catch((): CaptureResult => ({ ok: false, reason: "failed" }));
 
@@ -178,5 +351,6 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
   } finally {
     clearTimeout(timer);
     scrolled.unmark();
+    borders.unmark();
   }
 }

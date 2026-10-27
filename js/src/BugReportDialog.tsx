@@ -39,9 +39,15 @@ export type BugReportDialogProps = {
   onRetake?: (mode: RetakeMode, draft: Draft) => void;
   /** The draft to start from, in place of the saved one. */
   initialDraft?: Draft;
+  /** Called with the number once the server has filed the report. */
+  onSent?: (result: { number: number }) => void;
+  /** After a send: "dialog" shows the sent view here (default); "notice" closes the dialog at once. */
+  confirmation?: BugReportConfirmation;
 };
 
 export type RetakeMode = "delay" | "key";
+
+export type BugReportConfirmation = "dialog" | "notice";
 
 type Phase =
   | { name: "editing" }
@@ -62,7 +68,6 @@ const FOCUSABLE =
 const TITLE_ID = "bug-report-title";
 const KIND_ID = "bug-report-kind-label";
 const SUMMARY_ID = "bug-report-summary";
-const SUMMARY_ERROR_ID = "bug-report-summary-error";
 const DESCRIPTION_ID = "bug-report-description";
 const ERROR_ID = "bug-report-description-error";
 const COUNTER_ID = "bug-report-description-count";
@@ -100,6 +105,8 @@ export function BugReportDialog(props: BugReportDialogProps) {
     screenshotModes = true,
     onRetake,
     initialDraft,
+    onSent,
+    confirmation = "dialog",
   } = props;
   const labels = mergeLabels(labelOverrides);
   useBugkitStyles(nonce);
@@ -112,7 +119,6 @@ export function BugReportDialog(props: BugReportDialogProps) {
   const [draftSaved, setDraftSaved] = useState(() => readDraft() !== null);
   const [dataUrl, setDataUrl] = useState(capture.ok ? capture.dataUrl : null);
   const [removed, setRemoved] = useState(false);
-  const [summaryInvalid, setSummaryInvalid] = useState(false);
   const [descriptionInvalid, setDescriptionInvalid] = useState(false);
   const [oversize, setOversize] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>("idle");
@@ -243,7 +249,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
 
   function changeSummary(value: string) {
     setSummary(value);
-    if (summaryInvalid) setSummaryInvalid(false);
+    if (descriptionInvalid) setDescriptionInvalid(false);
     persist({ kind, summary: value, description, impact });
   }
 
@@ -285,15 +291,9 @@ export function BugReportDialog(props: BugReportDialogProps) {
     // WHY: aria-disabled leaves the button clickable, so the guard has to live in the handler.
     if (sending) return;
 
-    const missingSummary = summary.trim() === "";
-    const missingDescription = description.trim() === "";
-    setSummaryInvalid(missingSummary);
-    setDescriptionInvalid(!missingSummary && missingDescription);
-    if (missingSummary) {
-      summaryRef.current?.focus();
-      return;
-    }
-    if (missingDescription) {
+    const missingBoth = summary.trim() === "" && description.trim() === "";
+    setDescriptionInvalid(missingBoth);
+    if (missingBoth) {
       descriptionRef.current?.focus();
       return;
     }
@@ -322,6 +322,11 @@ export function BugReportDialog(props: BugReportDialogProps) {
       const result: BugReportResult = await submit(buildBugReportForm(payload));
       clearDraft();
       setDraftSaved(false);
+      onSent?.({ number: result.number });
+      if (confirmation === "notice") {
+        onClose();
+        return;
+      }
       setPhase({ name: "sent", number: result.number });
     } catch (error) {
       // WHY: keep the server's sentence too; "not configured" and "try again" need different actions.
@@ -360,6 +365,13 @@ export function BugReportDialog(props: BugReportDialogProps) {
   ];
 
   const descriptionDescribedBy = descriptionInvalid ? `${ERROR_ID} ${COUNTER_ID}` : COUNTER_ID;
+  const descriptionNeeded = summary.trim() === "";
+  // WHY: a v0.9.0 host sets only its own descriptionRequired; its both-empty message must keep that text.
+  const bothEmptyMessage =
+    labelOverrides?.summaryOrDescriptionRequired === undefined &&
+    labelOverrides?.[kind]?.descriptionRequired !== undefined
+      ? labels[kind].descriptionRequired
+      : labels.summaryOrDescriptionRequired;
 
   return createPortal(
     <div {...partProps(classNames, "overlay")} role="dialog" aria-modal="true" aria-labelledby={TITLE_ID}>
@@ -508,17 +520,9 @@ export function BugReportDialog(props: BugReportDialogProps) {
                     {...partProps(classNames, "input")}
                     placeholder={labels.summaryPlaceholder}
                     maxLength={SUMMARY_LIMIT}
-                    aria-required="true"
-                    aria-invalid={summaryInvalid}
-                    aria-describedby={summaryInvalid ? SUMMARY_ERROR_ID : undefined}
                     value={summary}
                     onChange={(event) => changeSummary(event.target.value)}
                   />
-                  {summaryInvalid ? (
-                    <p id={SUMMARY_ERROR_ID} role="alert" {...partProps(classNames, "error")}>
-                      {labels.summaryRequired}
-                    </p>
-                  ) : null}
                 </div>
 
                 <div {...partProps(classNames, "field")}>
@@ -531,7 +535,8 @@ export function BugReportDialog(props: BugReportDialogProps) {
                     {...partProps(classNames, "textarea")}
                     placeholder={k.descriptionPlaceholder}
                     maxLength={DESCRIPTION_LIMIT}
-                    required
+                    required={descriptionNeeded}
+                    aria-required={descriptionNeeded}
                     aria-invalid={descriptionInvalid}
                     aria-describedby={descriptionDescribedBy}
                     value={description}
@@ -542,7 +547,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   </p>
                   {descriptionInvalid ? (
                     <p id={ERROR_ID} role="alert" {...partProps(classNames, "error")}>
-                      {k.descriptionRequired}
+                      {bothEmptyMessage}
                     </p>
                   ) : null}
                 </div>

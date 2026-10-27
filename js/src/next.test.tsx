@@ -3,7 +3,7 @@ import { userEvent } from "@testing-library/user-event";
 import { toPng } from "html-to-image";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReport } from "./next.js";
-import { defaultLabels, formatFiled } from "./labels.js";
+import { defaultLabels } from "./labels.js";
 
 vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
 
@@ -57,7 +57,10 @@ describe("BugReport", () => {
     expect(form).toBeInstanceOf(FormData);
     expect(form.get("area")).toBe(window.location.pathname);
     expect(form.get("version")).toBe("v9");
-    expect(await screen.findByText(formatFiled(defaultLabels.filed, 7))).toBeInTheDocument();
+    expect(
+      await screen.findByText("Report sent. Its number is #7.", { selector: '[data-bugkit="notice-text"]' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("C2: shows the server's sentence when the answer is refused", async () => {

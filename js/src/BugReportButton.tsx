@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { BugReportDialog, type RetakeMode } from "./BugReportDialog.js";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { BugReportDialog, type BugReportConfirmation, type RetakeMode } from "./BugReportDialog.js";
 import { capturePage, type CaptureResult } from "./capture.js";
 import { type Draft } from "./draft.js";
 import {
@@ -8,12 +8,23 @@ import {
   type BugReportEnvironment,
   type BugReportSubmit,
 } from "./payload.js";
-import { mergeLabels, type BugReportLabelOverrides, type ResolvedBugReportLabels } from "./labels.js";
+import { formatFiled, mergeLabels, type BugReportLabelOverrides, type ResolvedBugReportLabels } from "./labels.js";
 import { partProps, type BugReportClassNames } from "./theme.js";
 
 const SCREENSHOT_DELAY_SECONDS = 3;
 const SCREENSHOT_KEY = "s";
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+const NOTICE_MS = 5_000;
+const NOTICE_FADE_MS = 300;
+// WHY: the live region must exist before any send and hold the sentence once, so the visible notice is not drawn twice.
+const VISUALLY_HIDDEN: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  overflow: "hidden",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
+};
 
 export type BugReportButtonProps = {
   submit: BugReportSubmit;
@@ -22,6 +33,8 @@ export type BugReportButtonProps = {
   diagnostics?: () => unknown;
   /** See capture.ts — which image origins are worth trying to inline. */
   allowedImageOrigins?: string[];
+  /** Embeds the page's web fonts in the screenshot so its labels wrap as they do on the page (default true); false skips that for a host where it is slow. */
+  captureFonts?: boolean;
   /**
    * The host dresses the launcher. This folder owns what the button DOES —
    * capture before the dialog, keep focus, stay out of its own screenshot — and
@@ -44,6 +57,10 @@ export type BugReportButtonProps = {
   technicalDetails?: boolean;
   /** Shows the dialog's screenshot options: retake after a countdown or on a key press, or send without a screenshot (default true). */
   screenshotModes?: boolean;
+  /** Called with the number after a report is sent; with it set, bugkit shows no notice of its own. */
+  onSent?: (result: { number: number }) => void;
+  /** After a send: "notice" (default) closes the dialog and shows a notice for a few seconds; "dialog" keeps the sent view in the dialog. */
+  confirmation?: BugReportConfirmation;
 };
 
 type Session = {
@@ -69,6 +86,7 @@ export function BugReportButton(props: BugReportButtonProps) {
     getContext,
     diagnostics,
     allowedImageOrigins,
+    captureFonts,
     className,
     children,
     onOpenChange,
@@ -76,9 +94,13 @@ export function BugReportButton(props: BugReportButtonProps) {
     nonce,
     technicalDetails,
     screenshotModes,
+    onSent,
+    confirmation = "notice",
   } = props;
   const labels: ResolvedBugReportLabels = mergeLabels(props.labels);
   const [session, setSession] = useState<Session | null>(null);
+  const [notice, setNotice] = useState<{ id: number; number: number } | null>(null);
+  const noticeIds = useRef(0);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   // The guard the state cannot be: two presses in one tick both read the
@@ -94,7 +116,7 @@ export function BugReportButton(props: BugReportButtonProps) {
       // Capture first, dialog second — the page has to be photographed before
       // our own UI is in the frame. Everything else is read at the same instant
       // so the context and the image describe the same moment.
-      const capture = await capturePage({ allowedImageOrigins });
+      const capture = await capturePage({ allowedImageOrigins, captureFonts });
       setSession({
         capture,
         context: getContext(),
@@ -113,6 +135,11 @@ export function BugReportButton(props: BugReportButtonProps) {
     onOpenChange?.(false);
   }
 
+  function sent(result: { number: number }) {
+    if (onSent) onSent(result);
+    else if (confirmation === "notice") setNotice({ id: ++noticeIds.current, number: result.number });
+  }
+
   // WHY: the ref stays set through the wait, so the launcher cannot start a second capture while the dialog is away.
   function retake(mode: RetakeMode, draft: Draft) {
     capturing.current = true;
@@ -128,7 +155,7 @@ export function BugReportButton(props: BugReportButtonProps) {
   async function captureRetake() {
     setPending({ mode: "capturing" });
     try {
-      const capture = await capturePage({ allowedImageOrigins });
+      const capture = await capturePage({ allowedImageOrigins, captureFonts });
       const next = {
         capture,
         context: getContext(),
@@ -242,8 +269,80 @@ export function BugReportButton(props: BugReportButtonProps) {
           screenshotModes={screenshotModes}
           onRetake={retake}
           initialDraft={session.draft}
+          onSent={sent}
+          confirmation={confirmation}
         />
       ) : null}
+
+      <div {...partProps(classNames, "notice-region")}>
+        <div role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN}>
+          {notice ? formatFiled(labels.sentNotice, notice.number) : null}
+        </div>
+        {notice ? (
+          <SentNotice
+            key={notice.id}
+            text={formatFiled(labels.sentNotice, notice.number)}
+            closeLabel={labels.close}
+            classNames={classNames}
+            onDone={() => setNotice(null)}
+          />
+        ) : null}
+      </div>
     </>
+  );
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+type SentNoticeProps = {
+  text: string;
+  closeLabel: string;
+  classNames?: BugReportClassNames;
+  onDone: () => void;
+};
+
+// WHY: the notice stays while the pointer is over it or it has focus, so a reporter can read or reach its close button.
+function SentNotice({ text, closeLabel, classNames, onDone }: SentNoticeProps) {
+  const [fading, setFading] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const held = hovered || focused;
+
+  useEffect(() => {
+    if (held) return;
+    const reduced = prefersReducedMotion();
+    // WHY: both timers are set together; a fade timer chained off the fade state would wait for a second render, which a fake clock does not run.
+    const fade = reduced ? undefined : window.setTimeout(() => setFading(true), NOTICE_MS);
+    const done = window.setTimeout(onDone, reduced ? NOTICE_MS : NOTICE_MS + NOTICE_FADE_MS);
+    return () => {
+      window.clearTimeout(fade);
+      window.clearTimeout(done);
+    };
+  }, [held]);
+
+  return (
+    <div
+      {...partProps(classNames, "notice")}
+      data-leaving={fading ? "" : undefined}
+      onPointerEnter={() => {
+        setFading(false);
+        setHovered(true);
+      }}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => {
+        setFading(false);
+        setFocused(true);
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
+      }}
+    >
+      <p {...partProps(classNames, "notice-text")}>{text}</p>
+      <button type="button" {...partProps(classNames, "notice-close")} onClick={onDone}>
+        {closeLabel}
+      </button>
+    </div>
   );
 }

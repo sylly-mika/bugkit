@@ -148,24 +148,60 @@ describe("BugReportDialog", () => {
     expect(form.get("summary")).toBe("Export CSV");
   });
 
-  it("refuses to send without a summary, then without a description", async () => {
+  it("refuses to send with neither a summary nor a description, under one message", async () => {
+    const user = userEvent.setup();
+    const { submit } = renderDialog();
+    const description = screen.getByLabelText("bug.descriptionLabel");
+
+    expect(description).toBeRequired();
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByText("summaryOrDescriptionRequired")).toBeInTheDocument();
+    expect(screen.queryByText("summaryRequired")).toBeNull();
+    expect(description).toHaveAttribute("aria-invalid", "true");
+    expect(description).toHaveFocus();
+
+    await user.type(screen.getByLabelText("summaryLabel"), "Export");
+    expect(description).not.toBeRequired();
+    expect(description).toHaveAttribute("aria-invalid", "false");
+  });
+
+  it("refuses a summary and a description that are only spaces, under one message", async () => {
     const user = userEvent.setup();
     const { submit } = renderDialog();
 
+    await user.type(screen.getByLabelText("summaryLabel"), "   ");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "   ");
     await user.click(screen.getByRole("button", { name: "bug.send" }));
 
-    const summary = screen.getByLabelText("summaryLabel");
     expect(submit).not.toHaveBeenCalled();
-    expect(summary).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByText("summaryRequired")).toBeInTheDocument();
-    expect(summary).toHaveFocus();
+    expect(screen.getByText("summaryOrDescriptionRequired")).toBeInTheDocument();
+  });
 
-    await user.type(summary, "Export");
-    await user.click(screen.getByRole("button", { name: "bug.send" }));
+  it("refuses a feature request with neither a summary nor a description", async () => {
+    const user = userEvent.setup();
+    const { submit } = renderDialog();
 
-    expect(screen.getByText("bug.descriptionRequired")).toBeInTheDocument();
-    expect(screen.getByLabelText("bug.descriptionLabel")).toHaveFocus();
+    await user.click(screen.getByRole("radio", { name: "kindFeature" }));
+    await user.click(screen.getByRole("button", { name: "feature.send" }));
+
     expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByText("summaryOrDescriptionRequired")).toBeInTheDocument();
+  });
+
+  it("keeps a host's own descriptionRequired text for the both-empty message", async () => {
+    const user = userEvent.setup();
+    const { summaryOrDescriptionRequired: _summaryOrDescriptionRequired, ...hostLabels } = labels;
+    const { submit } = renderDialog({
+      labels: { ...hostLabels, bug: { ...labels.bug, descriptionRequired: "Tell us what broke." } },
+    });
+
+    await user.click(screen.getByRole("button", { name: labels.bug.send }));
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByText("Tell us what broke.")).toBeInTheDocument();
+    expect(screen.queryByText(defaultLabels.summaryOrDescriptionRequired)).toBeNull();
   });
 
   it("keeps the summary within the server's cap and counts the description", async () => {
@@ -314,15 +350,17 @@ describe("BugReportDialog", () => {
     expect(screen.getByRole("button", { name: "sharedTitle" })).toBeInTheDocument();
   });
 
-  it("refuses to send an empty description", async () => {
+  it("sends with a summary and no description", async () => {
     const user = userEvent.setup();
     const { submit } = renderDialog();
 
     await user.type(screen.getByLabelText("summaryLabel"), "Export");
     await user.click(screen.getByRole("button", { name: "bug.send" }));
 
-    expect(submit).not.toHaveBeenCalled();
-    expect(screen.getByText("bug.descriptionRequired")).toBeInTheDocument();
+    await waitFor(() => expect(submit).toHaveBeenCalledTimes(1));
+    const form = submit.mock.calls[0][0];
+    expect(form.get("summary")).toBe("Export");
+    expect(form.get("description")).toBe("");
   });
 
   it("submits the form, then shows the filed number", async () => {

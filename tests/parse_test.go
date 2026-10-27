@@ -13,7 +13,7 @@ func TestRefusal422OnBadFields(t *testing.T) {
 		edit   func(map[string]string)
 		detail string
 	}{
-		{"description blank", func(f map[string]string) { f["description"] = "   " }, "A description is required."},
+		{"summary and description blank", func(f map[string]string) { f["summary"] = " "; f["description"] = "   " }, "A summary or a description is required."},
 		{"description too long", func(f map[string]string) { f["description"] = strings.Repeat("é", 5001) }, "Description must be at most 5000 characters."},
 		{"impact not allowed", func(f map[string]string) { f["impact"] = "urgent" }, "Impact must be one of blocks, workaround or cosmetic."},
 		{"impact absent", func(f map[string]string) { delete(f, "impact") }, "Impact must be one of blocks, workaround or cosmetic."},
@@ -26,7 +26,7 @@ func TestRefusal422OnBadFields(t *testing.T) {
 		{"version too long", func(f map[string]string) { f["version"] = strings.Repeat("v", 129) }, "Version must be at most 128 characters."},
 		{"viewport too long", func(f map[string]string) { f["viewport"] = strings.Repeat("1", 65) }, "Viewport must be at most 64 characters."},
 		{"request id too long", func(f map[string]string) { f["request_id"] = strings.Repeat("r", 129) }, "Request id must be at most 128 characters."},
-		{"description before impact", func(f map[string]string) { f["description"] = ""; f["impact"] = "urgent" }, "A description is required."},
+		{"description before impact", func(f map[string]string) { f["description"] = ""; f["impact"] = "urgent" }, "A summary or a description is required."},
 		{"area before diagnostics", func(f map[string]string) { f["area"] = "x"; f["diagnostics"] = "nope" }, `Area must be a route path starting with "/".`},
 		{"version before request id", func(f map[string]string) {
 			f["version"] = strings.Repeat("v", 129)
@@ -67,6 +67,16 @@ func TestSummaryCapCountsRunesAndFollowsTheLimits(t *testing.T) {
 	fields["summary"] = strings.Repeat("s", 10)
 	if rec := post(t, cfg, fields, nil); rec.Code != http.StatusCreated {
 		t.Fatalf("10 runes with Summary limit 10: status = %d, want 201\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestSummaryAloneIsAccepted(t *testing.T) {
+	sink := newFakeSink()
+	fields := validParts()
+	fields["summary"] = "Export the plan list"
+	fields["description"] = ""
+	if rec := post(t, bugkit.Config{Sink: sink, Who: whoMiky}, fields, nil); rec.Code != http.StatusCreated {
+		t.Fatalf("summary without description: status = %d, want 201\n%s", rec.Code, rec.Body.String())
 	}
 }
 
