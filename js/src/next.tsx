@@ -2,7 +2,12 @@
 
 import type { ReactElement } from "react";
 import { BugReportButton, type BugReportButtonProps } from "./BugReportButton.js";
-import type { BugReportContext, BugReportResult } from "./payload.js";
+import type {
+  BugReportContext,
+  BugReportResult,
+  ReportedIssuesList,
+  ReportedIssuesPage,
+} from "./payload.js";
 
 export type { BugReportClassNames } from "./theme.js";
 
@@ -11,6 +16,7 @@ export type BugReportProps = Omit<BugReportButtonProps, "submit" | "getContext">
   init?: RequestInit | (() => RequestInit | Promise<RequestInit>);
   version?: string;
   getContext?: () => BugReportContext;
+  reportsEndpoint?: string;
 };
 
 /**
@@ -24,6 +30,7 @@ export function BugReport({
   init,
   version,
   getContext,
+  reportsEndpoint,
   ...rest
 }: BugReportProps): ReactElement {
   const submit = async (form: FormData): Promise<BugReportResult> => {
@@ -37,11 +44,19 @@ export function BugReport({
     throw new Error(typeof detail === "string" && detail !== "" ? detail : `HTTP ${response.status}`);
   };
 
+  const listReports: ReportedIssuesList = async (page) => {
+    const resolvedInit = typeof init === "function" ? await init() : (init ?? {});
+    const response = await fetch(`${reportsEndpoint}?page=${page}`, { ...resolvedInit, method: "GET" });
+    if (!response.ok) throw new Error(`bugkit: reports answered ${response.status}`);
+    return (await response.json()) as ReportedIssuesPage;
+  };
+
   return (
     <BugReportButton
       {...rest}
       submit={submit}
       getContext={getContext ?? (() => ({ area: window.location.pathname, version: version ?? "" }))}
+      {...(reportsEndpoint !== undefined ? { listReports } : {})}
     />
   );
 }

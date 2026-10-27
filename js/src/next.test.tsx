@@ -82,4 +82,37 @@ describe("BugReport", () => {
     expect(init).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("An area is required.")).toBeInTheDocument();
   });
+
+  it("lists the reports through reportsEndpoint with init, and shows a failed list", async () => {
+    const user = userEvent.setup();
+    const report = {
+      number: 5,
+      title: "Old bug",
+      status: "Done",
+      status_category: "done",
+      reporter_name: null,
+      reported_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-03T10:00:00Z",
+    };
+    const meta = { page: 1, per_page: 20, total: 1, total_pages: 1 };
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => answer(200, { data: [report], meta }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<BugReport reportsEndpoint="/api/v1/bug-reports" init={{ headers: { "X-CSRF": "t" } }} />);
+    await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.reportedIssues }));
+
+    expect(await screen.findByText("#5 Old bug")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, requestInit] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/bug-reports?page=1");
+    expect(requestInit).toMatchObject({ method: "GET", headers: { "X-CSRF": "t" } });
+
+    cleanup();
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, _init?: RequestInit) => answer(500, { detail: "boom" })));
+    render(<BugReport reportsEndpoint="/api/v1/bug-reports" />);
+    await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.reportedIssues }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+  });
 });
