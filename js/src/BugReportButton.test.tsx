@@ -74,6 +74,36 @@ describe("BugReportButton", () => {
     expect(await screen.findByRole("button", { name: defaultLabels.bug.send })).toBeInTheDocument();
   });
 
+  it("shows the default text of the menu items when the host's label set predates them", async () => {
+    const user = userEvent.setup();
+    const {
+      buttonMenuHint: _buttonMenuHint,
+      screenshotNow: _screenshotNow,
+      screenshotInThreeSeconds: _screenshotInThreeSeconds,
+      screenshotOnKeyPress: _screenshotOnKeyPress,
+      sendWithoutScreenshot: _sendWithoutScreenshot,
+      ...v010Labels
+    } = defaultLabels;
+    render(
+      <BugReportButton
+        submit={vi.fn()}
+        getContext={getContext}
+        labels={v010Labels}
+        diagnostics={() => []}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: launcherName }));
+
+    const items = within(await screen.findByRole("menu")).getAllByRole("menuitem");
+    expect(items.map((item) => item.textContent)).toEqual([
+      defaultLabels.screenshotNow,
+      defaultLabels.screenshotInThreeSeconds,
+      defaultLabels.screenshotOnKeyPress,
+      defaultLabels.sendWithoutScreenshot,
+    ]);
+  });
+
   // The session is read when the launcher is pressed, not when the host renders:
   // what the report says is what the page said at the moment of the press.
   it("reads the host's context and diagnostics when pressed and sends them", async () => {
@@ -627,6 +657,53 @@ describe("BugReportButton", () => {
 
       await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
       expect(toPngMock).not.toHaveBeenCalled();
+    });
+
+    it("closes on Tab and returns focus to the launcher, taking no screenshot", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      const launcher = screen.getByRole("button", { name: launcherName });
+      await user.click(launcher);
+      await screen.findByRole("menu");
+
+      await user.keyboard("{Tab}");
+
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(launcher).toHaveFocus();
+      expect(launcher).toHaveAttribute("aria-expanded", "false");
+      expect(toPngMock).not.toHaveBeenCalled();
+    });
+
+    it("closes the open menu when the launcher is pressed again", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      const launcher = screen.getByRole("button", { name: launcherName });
+      await user.click(launcher);
+      await screen.findByRole("menu");
+
+      await user.click(launcher);
+
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(launcher).toHaveAttribute("aria-expanded", "false");
+      expect(toPngMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["Enter", "{Enter}"],
+      ["Space", " "],
+    ])("%s on a focused item chooses it", async (_key, key) => {
+      const user = userEvent.setup();
+      renderButton();
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      const items = within(await screen.findByRole("menu")).getAllByRole("menuitem");
+      await user.keyboard("{End}");
+      expect(items[3]).toHaveFocus();
+
+      await user.keyboard(key);
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(toPngMock).not.toHaveBeenCalled();
+      expect(screen.getByText(defaultLabels.screenshotRemoved)).toBeInTheDocument();
     });
 
     it("Screenshot now closes the menu before the page is photographed", async () => {

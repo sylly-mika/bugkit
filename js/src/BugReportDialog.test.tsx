@@ -75,7 +75,7 @@ describe("BugReportDialog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows no screenshot options when the host passes a v0.8.0 label set and onRetake", () => {
+  it("shows neither the screenshot options nor a retake button for a v0.8.0 label set with onRetake", () => {
     const {
       screenshotModes: _screenshotModes,
       retakeDelayed: _retakeDelayed,
