@@ -11,6 +11,9 @@ vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
 const toPngMock = vi.mocked(toPng);
 
 const getContext = () => ({ area: "/projects/7/board", version: "3862535" });
+// WHY: the capture hint and the sent-notice live region both have role="status"; the hint is the one inside its part.
+const captureHintText = () =>
+  document.querySelector('[data-bugkit="capture-hint"] [role="status"]')?.textContent;
 
 function renderButton(children?: ReactNode) {
   const submit = vi.fn().mockResolvedValue({ id: "0190d1c2-0000-7000-8000-000000000141", number: 141 });
@@ -274,6 +277,7 @@ describe("BugReportButton", () => {
 
   describe("a sent report", () => {
     const noticeText = "Report sent. Its number is #141.";
+    const noticeSelector = '[data-bugkit="notice-text"]';
 
     beforeEach(() => {
       toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
@@ -296,10 +300,27 @@ describe("BugReportButton", () => {
 
       await sendReport(user);
 
-      expect(await screen.findByText(noticeText)).toBeInTheDocument();
+      expect(await screen.findByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(screen.getByRole("status")).toHaveTextContent(noticeText);
       await waitFor(() => expect(launcher).toHaveFocus());
+    });
+
+    it("fills a polite live region that was already there, so the sentence is announced once", async () => {
+      const user = userEvent.setup();
+      renderButton();
+
+      expect(screen.getByRole("status")).toBeEmptyDOMElement();
+      expect(screen.getByRole("status")).toHaveAttribute("aria-live", "polite");
+      expect(screen.getByRole("status")).toHaveAttribute("aria-atomic", "true");
+
+      await sendReport(user);
+
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(noticeText));
+      const live = Array.from(document.querySelectorAll('[aria-live], [role="status"]')).filter((element) =>
+        element.textContent?.includes(noticeText),
+      );
+      expect(live).toHaveLength(1);
     });
 
     it("leaves after about five seconds, not before", async () => {
@@ -308,13 +329,13 @@ describe("BugReportButton", () => {
       renderButton();
 
       await sendReport(user);
-      expect(await screen.findByText(noticeText)).toBeInTheDocument();
+      expect(await screen.findByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
 
       act(() => vi.advanceTimersByTime(4_000));
-      expect(screen.getByText(noticeText)).toBeInTheDocument();
+      expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
 
       act(() => vi.advanceTimersByTime(2_000));
-      expect(screen.queryByText(noticeText)).toBeNull();
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
     });
 
     it("stays while the pointer is over it", async () => {
@@ -323,15 +344,15 @@ describe("BugReportButton", () => {
       renderButton();
 
       await sendReport(user);
-      const notice = await screen.findByText(noticeText);
+      const notice = await screen.findByText(noticeText, { selector: noticeSelector });
 
       await user.hover(notice);
       act(() => vi.advanceTimersByTime(10_000));
-      expect(screen.getByText(noticeText)).toBeInTheDocument();
+      expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
 
       await user.unhover(notice);
       act(() => vi.advanceTimersByTime(6_000));
-      expect(screen.queryByText(noticeText)).toBeNull();
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
     });
 
     it("drops the notice at once with reduced motion", async () => {
@@ -345,10 +366,10 @@ describe("BugReportButton", () => {
       try {
         renderButton();
         await sendReport(user);
-        expect(await screen.findByText(noticeText)).toBeInTheDocument();
+        expect(await screen.findByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
 
         act(() => vi.advanceTimersByTime(5_100));
-        expect(screen.queryByText(noticeText)).toBeNull();
+        expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
       } finally {
         window.matchMedia = original;
       }
@@ -372,7 +393,7 @@ describe("BugReportButton", () => {
       await sendReport(user);
 
       await waitFor(() => expect(onSent).toHaveBeenCalledWith({ number: 141 }));
-      expect(screen.queryByText(noticeText)).toBeNull();
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
     });
 
     it("keeps the sent view behind confirmation=\"dialog\"", async () => {
@@ -394,7 +415,7 @@ describe("BugReportButton", () => {
       expect(await screen.findByText(defaultLabels.successTitle)).toBeInTheDocument();
       expect(screen.getByText("The report number is #141.")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: defaultLabels.close })).toBeInTheDocument();
-      expect(screen.queryByText(noticeText)).toBeNull();
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
     });
   });
 
@@ -430,9 +451,9 @@ describe("BugReportButton", () => {
         await user.click(screen.getByRole("button", { name: defaultLabels.retakeDelayed }));
 
         expect(screen.queryByRole("dialog")).toBeNull();
-        expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureCountdown(3));
+        expect(captureHintText()).toBe(defaultLabels.captureCountdown(3));
         await act(() => vi.advanceTimersByTimeAsync(1000));
-        expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureCountdown(2));
+        expect(captureHintText()).toBe(defaultLabels.captureCountdown(2));
         await act(() => vi.advanceTimersByTimeAsync(1000));
         expect(toPngMock).toHaveBeenCalledTimes(1);
         await act(() => vi.advanceTimersByTimeAsync(1000));
@@ -464,7 +485,7 @@ describe("BugReportButton", () => {
       await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
       await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
 
-      expect(screen.getByRole("status").textContent).toBe(defaultLabels.captureKeyHint);
+      expect(captureHintText()).toBe(defaultLabels.captureKeyHint);
       const bar = document.querySelector<HTMLElement>('[data-bugkit="capture-hint"]');
       expect(bar).toHaveClass("app-hint");
 

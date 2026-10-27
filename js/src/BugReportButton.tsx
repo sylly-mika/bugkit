@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { BugReportDialog, type BugReportConfirmation, type RetakeMode } from "./BugReportDialog.js";
 import { capturePage, type CaptureResult } from "./capture.js";
 import { type Draft } from "./draft.js";
@@ -16,6 +16,15 @@ const SCREENSHOT_KEY = "s";
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 const NOTICE_MS = 5_000;
 const NOTICE_FADE_MS = 300;
+// WHY: the live region must exist before any send and hold the sentence once, so the visible notice is not drawn twice.
+const VISUALLY_HIDDEN: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  overflow: "hidden",
+  clipPath: "inset(50%)",
+  whiteSpace: "nowrap",
+};
 
 export type BugReportButtonProps = {
   submit: BugReportSubmit;
@@ -262,6 +271,9 @@ export function BugReportButton(props: BugReportButtonProps) {
       ) : null}
 
       <div {...partProps(classNames, "notice-region")}>
+        <div role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN}>
+          {notice ? formatFiled(labels.sentNotice, notice.number) : null}
+        </div>
         {notice ? (
           <SentNotice
             key={notice.number}
@@ -306,7 +318,6 @@ function SentNotice({ text, closeLabel, classNames, onDone }: SentNoticeProps) {
 
   return (
     <div
-      role="status"
       {...partProps(classNames, "notice")}
       data-leaving={fading ? "" : undefined}
       onPointerEnter={() => {
