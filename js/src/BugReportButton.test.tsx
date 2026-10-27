@@ -395,6 +395,42 @@ describe("BugReportButton", () => {
       }
     });
 
+    it("goes at once when its close button is pressed", async () => {
+      const user = userEvent.setup();
+      renderButton();
+
+      await sendReport(user);
+      await user.click(await screen.findByRole("button", { name: defaultLabels.close }));
+
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+      expect(screen.queryByRole("button", { name: defaultLabels.close })).toBeNull();
+    });
+
+    it("never marks the notice as leaving with reduced motion", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const original = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("reduce"),
+      })) as unknown as typeof window.matchMedia;
+
+      try {
+        renderButton();
+        await sendReport(user);
+        const notice = (await screen.findByText(noticeText, { selector: noticeSelector })).parentElement;
+        expect(notice).not.toBeNull();
+
+        act(() => vi.advanceTimersByTime(4_900));
+        expect(notice).not.toHaveAttribute("data-leaving");
+
+        act(() => vi.advanceTimersByTime(200));
+        expect(notice).not.toHaveAttribute("data-leaving");
+        expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+      } finally {
+        window.matchMedia = original;
+      }
+    });
+
     it("hands the number to onSent and shows no notice of its own", async () => {
       const user = userEvent.setup();
       const onSent = vi.fn();

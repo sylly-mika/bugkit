@@ -57,7 +57,10 @@ describe("BugReport", () => {
     expect(form).toBeInstanceOf(FormData);
     expect(form.get("area")).toBe(window.location.pathname);
     expect(form.get("version")).toBe("v9");
-    expect(await screen.findByText("Report sent. Its number is #7.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Report sent. Its number is #7.", { selector: '[data-bugkit="notice-text"]' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("C2: shows the server's sentence when the answer is refused", async () => {

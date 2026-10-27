@@ -167,6 +167,29 @@ describe("BugReportDialog", () => {
     expect(description).toHaveAttribute("aria-invalid", "false");
   });
 
+  it("refuses a summary and a description that are only spaces, under one message", async () => {
+    const user = userEvent.setup();
+    const { submit } = renderDialog();
+
+    await user.type(screen.getByLabelText("summaryLabel"), "   ");
+    await user.type(screen.getByLabelText("bug.descriptionLabel"), "   ");
+    await user.click(screen.getByRole("button", { name: "bug.send" }));
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByText("summaryOrDescriptionRequired")).toBeInTheDocument();
+  });
+
+  it("refuses a feature request with neither a summary nor a description", async () => {
+    const user = userEvent.setup();
+    const { submit } = renderDialog();
+
+    await user.click(screen.getByRole("radio", { name: "kindFeature" }));
+    await user.click(screen.getByRole("button", { name: "feature.send" }));
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByText("summaryOrDescriptionRequired")).toBeInTheDocument();
+  });
+
   it("keeps the summary within the server's cap and counts the description", async () => {
     const user = userEvent.setup();
     renderDialog();
