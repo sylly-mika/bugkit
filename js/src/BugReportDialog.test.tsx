@@ -75,7 +75,7 @@ describe("BugReportDialog", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows the default text for a v0.9.0 control when the host passes a v0.8.0 label set", () => {
+  it("shows no screenshot options when the host passes a v0.8.0 label set and onRetake", () => {
     const {
       screenshotModes: _screenshotModes,
       retakeDelayed: _retakeDelayed,
@@ -89,7 +89,8 @@ describe("BugReportDialog", () => {
     } = labels;
     renderDialog({ labels: v080Labels, onRetake: vi.fn() });
 
-    expect(screen.getByRole("button", { name: "Retake in 3 seconds" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "screenshotModes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retake in 3 seconds" })).not.toBeInTheDocument();
   });
 
   // The spec's rule is that everything the submission carries is visible before

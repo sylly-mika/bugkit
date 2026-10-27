@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { getFontEmbedCSS, toPng } from "html-to-image";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -29,6 +29,14 @@ function renderButton(children?: ReactNode) {
   return { submit };
 }
 
+const launcherName = `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}`;
+
+// The launcher opens the menu; "Screenshot now" is the item that takes the shot at once.
+async function shootNow(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: launcherName }));
+  await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow }));
+}
+
 describe("BugReportButton", () => {
   // A braced body, deliberately: mockReset() returns the mock, and vitest takes
   // a function returned from beforeEach as the teardown hook — so the concise
@@ -48,7 +56,7 @@ describe("BugReportButton", () => {
     render(
       <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} />,
     );
-    expect(screen.getByRole("button", { name: defaultLabels.buttonLabel })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: launcherName })).toBeInTheDocument();
 
     cleanup();
     toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
@@ -60,7 +68,8 @@ describe("BugReportButton", () => {
         diagnostics={() => []}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "Report a bug" }));
+    await user.click(screen.getByRole("button", { name: `Report a bug, ${defaultLabels.buttonMenuHint}` }));
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow }));
 
     expect(await screen.findByRole("button", { name: defaultLabels.bug.send })).toBeInTheDocument();
   });
@@ -82,7 +91,7 @@ describe("BugReportButton", () => {
     );
     area = "/after";
 
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
     await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Summary");
     await user.type(await screen.findByLabelText(defaultLabels.bug.descriptionLabel), "Broken save");
     await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
@@ -106,7 +115,7 @@ describe("BugReportButton", () => {
 
     render(<BugReportButton submit={submit} getContext={getContext} />);
 
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
     await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Summary");
     await user.type(await screen.findByLabelText(defaultLabels.bug.descriptionLabel), "No diagnostics");
     await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
@@ -131,7 +140,7 @@ describe("BugReportButton", () => {
         allowedImageOrigins={["https://api.example.test"]}
       />,
     );
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
     await screen.findByRole("dialog");
 
     const { filter } = toPngMock.mock.calls[0][1]!;
@@ -152,7 +161,7 @@ describe("BugReportButton", () => {
     const { unmount } = render(
       <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} />,
     );
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
     await screen.findByRole("dialog");
     expect(toPngMock.mock.calls[0][1]).toMatchObject({ fontEmbedCSS: fonts });
     unmount();
@@ -162,7 +171,7 @@ describe("BugReportButton", () => {
     render(
       <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} captureFonts={false} />,
     );
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
     await screen.findByRole("dialog");
     expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
   });
@@ -179,6 +188,7 @@ describe("BugReportButton", () => {
         getContext={() => ({ area: "/", version: "v" })}
         diagnostics={() => []}
         onOpenChange={onOpenChange}
+        screenshotModes={false}
       />,
     );
     const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
@@ -210,7 +220,7 @@ describe("BugReportButton", () => {
       return "data:image/png;base64,AAECAw==";
     });
     renderButton();
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
 
     await screen.findByRole("dialog");
     expect(dialogVisibleAtCapture).toBe(false);
@@ -222,7 +232,7 @@ describe("BugReportButton", () => {
     toPngMock.mockRejectedValue(new Error("tainted"));
 
     renderButton();
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
 
     await screen.findByRole("dialog");
     expect(screen.getByText(defaultLabels.captureFallbackHint)).toBeInTheDocument();
@@ -233,7 +243,7 @@ describe("BugReportButton", () => {
     toPngMock.mockRejectedValue(new Error("tainted"));
 
     render(<BugReportButton submit={vi.fn()} getContext={getContext} technicalDetails={false} />);
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
 
     await screen.findByRole("dialog");
     expect(screen.queryByRole("button", { name: defaultLabels.technicalTitle })).toBeNull();
@@ -244,12 +254,12 @@ describe("BugReportButton", () => {
     toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
 
     renderButton();
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
     await user.click(await screen.findByRole("button", { name: defaultLabels.back }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await shootNow(user);
     await screen.findByRole("dialog");
     expect(toPngMock).toHaveBeenCalledTimes(2);
   });
@@ -268,16 +278,17 @@ describe("BugReportButton", () => {
     );
 
     renderButton(<svg data-testid="icon" />);
-    const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
+    const launcher = screen.getByRole("button", { name: launcherName });
 
     expect(launcher.textContent).toBe("");
-    expect(launcher).toHaveAttribute("title", defaultLabels.buttonLabel);
+    expect(launcher).toHaveAttribute("title", launcherName);
     expect(screen.getByTestId("icon")).toBeInTheDocument();
 
     // Nothing visible changes while the page is being photographed, so the name
     // is the only thing left to carry the wait — and it has to come back, or the
     // next report is filed by a control still called "Taking a screenshot…".
     await user.click(launcher);
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow }));
     await waitFor(() =>
       expect(launcher).toHaveAttribute("aria-label", defaultLabels.capturePending),
     );
@@ -285,8 +296,8 @@ describe("BugReportButton", () => {
 
     await act(async () => finishCapture!("data:image/png;base64,AAECAw=="));
     await screen.findByRole("dialog");
-    expect(launcher).toHaveAttribute("aria-label", defaultLabels.buttonLabel);
-    expect(launcher).toHaveAttribute("title", defaultLabels.buttonLabel);
+    expect(launcher).toHaveAttribute("aria-label", launcherName);
+    expect(launcher).toHaveAttribute("title", launcherName);
   });
 
   // A keyboard reporter who cancels must land back where they were, not at the
@@ -296,9 +307,10 @@ describe("BugReportButton", () => {
     toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
 
     renderButton();
-    const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
+    const launcher = screen.getByRole("button", { name: launcherName });
 
     await user.click(launcher);
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow }));
     await user.click(await screen.findByRole("button", { name: defaultLabels.back }));
 
     await waitFor(() => expect(launcher).toHaveFocus());
@@ -317,7 +329,7 @@ describe("BugReportButton", () => {
     });
 
     async function sendReport(user: ReturnType<typeof userEvent.setup>) {
-      await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+      await shootNow(user);
       await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Summary");
       await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
     }
@@ -325,7 +337,7 @@ describe("BugReportButton", () => {
     it("closes the dialog, returns focus to the launcher, and shows the notice with the number", async () => {
       const user = userEvent.setup();
       renderButton();
-      const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
+      const launcher = screen.getByRole("button", { name: launcherName });
 
       await sendReport(user);
 
@@ -473,7 +485,9 @@ describe("BugReportButton", () => {
 
       try {
         renderButton();
-        fireEvent.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+        fireEvent.click(screen.getByRole("button", { name: launcherName }));
+        fireEvent.click(screen.getByRole("menuitem", { name: defaultLabels.screenshotNow }));
+        await act(() => vi.advanceTimersByTimeAsync(20));
         await settle(() => screen.queryByLabelText(defaultLabels.summaryLabel));
         fireEvent.change(screen.getByLabelText(defaultLabels.summaryLabel), { target: { value: "Summary" } });
         fireEvent.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
@@ -538,7 +552,7 @@ describe("BugReportButton", () => {
     });
   });
 
-  describe("screenshot retakes", () => {
+  describe("the screenshot menu", () => {
     beforeEach(() => {
       window.sessionStorage.clear();
     });
@@ -547,45 +561,119 @@ describe("BugReportButton", () => {
       vi.useRealTimers();
     });
 
-    it("retakes after a countdown and keeps the words", async () => {
-      vi.useFakeTimers({ shouldAdvanceTime: true });
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    it("opens a menu on press, takes no screenshot, and focuses the first item", async () => {
+      const user = userEvent.setup();
       toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
-      const onOpenChange = vi.fn();
-      const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-        throw new Error("quota");
-      });
+      renderButton();
+      const launcher = screen.getByRole("button", { name: launcherName });
 
-      try {
-        render(
-          <BugReportButton
-            submit={vi.fn()}
-            getContext={getContext}
-            diagnostics={() => []}
-            onOpenChange={onOpenChange}
-          />,
-        );
-        await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
-        await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Login fails");
-        await user.click(screen.getByRole("button", { name: defaultLabels.retakeDelayed }));
+      await user.click(launcher);
 
-        expect(screen.queryByRole("dialog")).toBeNull();
-        expect(captureHintText()).toBe(defaultLabels.captureCountdown(3));
-        await act(() => vi.advanceTimersByTimeAsync(1000));
-        expect(captureHintText()).toBe(defaultLabels.captureCountdown(2));
-        await act(() => vi.advanceTimersByTimeAsync(1000));
-        expect(toPngMock).toHaveBeenCalledTimes(1);
-        await act(() => vi.advanceTimersByTimeAsync(1000));
-        expect(toPngMock).toHaveBeenCalledTimes(2);
-
-        expect(await screen.findByLabelText(defaultLabels.summaryLabel)).toHaveValue("Login fails");
-        expect(onOpenChange.mock.calls).toEqual([[true]]);
-      } finally {
-        setItem.mockRestore();
-      }
+      const items = within(await screen.findByRole("menu")).getAllByRole("menuitem");
+      expect(items.map((item) => item.textContent)).toEqual([
+        defaultLabels.screenshotNow,
+        defaultLabels.screenshotInThreeSeconds,
+        defaultLabels.screenshotOnKeyPress,
+        defaultLabels.sendWithoutScreenshot,
+      ]);
+      expect(launcher).toHaveAttribute("aria-haspopup", "menu");
+      expect(launcher).toHaveAttribute("aria-expanded", "true");
+      expect(items[0]).toHaveFocus();
+      expect(toPngMock).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog")).toBeNull();
     });
 
-    it("retakes on S, not while typing in a field", async () => {
+    it("moves between the items with the arrow keys, Home and End, and wraps", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      const items = within(await screen.findByRole("menu")).getAllByRole("menuitem");
+
+      await user.keyboard("{ArrowDown}");
+      expect(items[1]).toHaveFocus();
+      await user.keyboard("{ArrowUp}{ArrowUp}");
+      expect(items[3]).toHaveFocus();
+      await user.keyboard("{ArrowDown}");
+      expect(items[0]).toHaveFocus();
+      await user.keyboard("{End}");
+      expect(items[3]).toHaveFocus();
+      await user.keyboard("{Home}");
+      expect(items[0]).toHaveFocus();
+      expect(toPngMock).not.toHaveBeenCalled();
+    });
+
+    it("closes on Escape and returns focus to the launcher, taking no screenshot", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      const launcher = screen.getByRole("button", { name: launcherName });
+      await user.click(launcher);
+      await screen.findByRole("menu");
+
+      await user.keyboard("{Escape}");
+
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(launcher).toHaveFocus();
+      expect(launcher).toHaveAttribute("aria-expanded", "false");
+      expect(toPngMock).not.toHaveBeenCalled();
+    });
+
+    it("closes when the reporter clicks elsewhere", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      await screen.findByRole("menu");
+
+      await user.click(document.body);
+
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(toPngMock).not.toHaveBeenCalled();
+    });
+
+    it("Screenshot now closes the menu before the page is photographed", async () => {
+      const user = userEvent.setup();
+      const menuDuringCapture: boolean[] = [];
+      toPngMock.mockImplementation(async () => {
+        menuDuringCapture.push(document.querySelector('[data-bugkit="screenshot-modes"]') !== null);
+        return "data:image/png;base64,AAECAw==";
+      });
+      renderButton();
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow }));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(menuDuringCapture).toEqual([false]);
+    });
+
+    it("Screenshot in 3 seconds counts down, then takes the screenshot and opens the dialog", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const hintDuringCapture: boolean[] = [];
+      toPngMock.mockImplementation(async () => {
+        hintDuringCapture.push(document.querySelector('[data-bugkit="capture-hint"]') !== null);
+        return "data:image/png;base64,AAECAw==";
+      });
+
+      renderButton();
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      await user.click(
+        await screen.findByRole("menuitem", { name: defaultLabels.screenshotInThreeSeconds }),
+      );
+
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(captureHintText()).toBe(defaultLabels.captureCountdown(3));
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(captureHintText()).toBe(defaultLabels.captureCountdown(2));
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(captureHintText()).toBe(defaultLabels.captureCountdown(1));
+      expect(toPngMock).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      expect(toPngMock).toHaveBeenCalledTimes(1);
+      expect(hintDuringCapture).toEqual([false]);
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    });
+
+    it("Screenshot on key press takes the screenshot on S, not while typing in a field", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
@@ -601,51 +689,62 @@ describe("BugReportButton", () => {
           />
         </>,
       );
-      await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
-      await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotOnKeyPress }));
 
       expect(captureHintText()).toBe(defaultLabels.captureKeyHint);
       const bar = document.querySelector<HTMLElement>('[data-bugkit="capture-hint"]');
       expect(bar).toHaveClass("app-hint");
 
       await user.type(screen.getByLabelText("Page search"), "s");
-      expect(toPngMock).toHaveBeenCalledTimes(1);
+      expect(toPngMock).not.toHaveBeenCalled();
       expect(screen.getByLabelText("Page search")).toHaveValue("s");
 
       (document.activeElement as HTMLElement).blur();
       await user.keyboard("s");
-      await waitFor(() => expect(toPngMock).toHaveBeenCalledTimes(2));
-      const { filter } = toPngMock.mock.calls[1][1]!;
-      expect(filter!(bar!)).toBe(false);
+      await waitFor(() => expect(toPngMock).toHaveBeenCalledTimes(1));
+      expect(document.querySelector('[data-bugkit="capture-hint"]')).toBeNull();
       expect(await screen.findByRole("dialog")).toBeInTheDocument();
     });
 
-    it("does not retake on S with Ctrl, Meta or Alt", async () => {
+    it("Screenshot on key press ignores S with Ctrl, Meta or Alt", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
 
       renderButton();
-      await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
-      await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotOnKeyPress }));
       (document.activeElement as HTMLElement).blur();
 
       await user.keyboard("{Control>}s{/Control}");
       await user.keyboard("{Meta>}s{/Meta}");
       await user.keyboard("{Alt>}s{/Alt}");
       await act(() => vi.advanceTimersByTimeAsync(1000));
-      expect(toPngMock).toHaveBeenCalledTimes(1);
+      expect(toPngMock).not.toHaveBeenCalled();
 
       await user.keyboard("s");
-      await waitFor(() => expect(toPngMock).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(toPngMock).toHaveBeenCalledTimes(1));
+    });
+
+    it("Send without screenshot opens the dialog with no screenshot", async () => {
+      const user = userEvent.setup();
+      renderButton();
+
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      await user.click(await screen.findByRole("menuitem", { name: defaultLabels.sendWithoutScreenshot }));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(toPngMock).not.toHaveBeenCalled();
+      expect(screen.getByText(defaultLabels.screenshotRemoved)).toBeInTheDocument();
     });
 
     it.each([
-      ["delay", "Escape"],
-      ["delay", "Cancel screenshot"],
-      ["key", "Escape"],
-      ["key", "Cancel screenshot"],
-    ])("cancels a pending %s retake with %s", async (mode, how) => {
+      [defaultLabels.screenshotInThreeSeconds, "Escape"],
+      [defaultLabels.screenshotInThreeSeconds, defaultLabels.captureCancel],
+      [defaultLabels.screenshotOnKeyPress, "Escape"],
+      [defaultLabels.screenshotOnKeyPress, defaultLabels.captureCancel],
+    ])("cancels a wait from %s with %s, takes no screenshot, and returns focus to the launcher", async (item, how) => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
@@ -654,41 +753,58 @@ describe("BugReportButton", () => {
 
       try {
         renderButton();
-        await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
-        await user.click(
-          await screen.findByRole("button", {
-            name: mode === "delay" ? defaultLabels.retakeDelayed : defaultLabels.retakeOnKey,
-          }),
-        );
+        const launcher = screen.getByRole("button", { name: launcherName });
+        await user.click(launcher);
+        await user.click(await screen.findByRole("menuitem", { name: item }));
         if (how === "Escape") {
           await user.keyboard("{Escape}");
         } else {
           await user.click(screen.getByRole("button", { name: defaultLabels.captureCancel }));
         }
 
-        expect(await screen.findByRole("dialog")).toBeInTheDocument();
-        expect(toPngMock).toHaveBeenCalledTimes(1);
+        expect(captureHintText()).toBeUndefined();
+        expect(launcher).toHaveFocus();
         await act(() => vi.advanceTimersByTimeAsync(5000));
-        expect(toPngMock).toHaveBeenCalledTimes(1);
+        expect(toPngMock).not.toHaveBeenCalled();
+        expect(screen.queryByRole("dialog")).toBeNull();
         expect(pageKeys.mock.calls.some(([event]) => event.key === "Escape")).toBe(false);
       } finally {
         window.removeEventListener("keydown", pageKeys);
       }
     });
 
-    it("ignores the launcher while a retake waits", async () => {
+    it("ignores the launcher while the screenshot waits", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
 
       renderButton();
-      const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
+      const launcher = screen.getByRole("button", { name: launcherName });
       await user.click(launcher);
-      await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
+      await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotOnKeyPress }));
 
       await user.click(launcher);
-      expect(toPngMock).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(toPngMock).not.toHaveBeenCalled();
       expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("takes the screenshot at once when screenshotModes is off", async () => {
+      toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+      render(
+        <BugReportButton
+          submit={vi.fn()}
+          getContext={getContext}
+          diagnostics={() => []}
+          screenshotModes={false}
+        />,
+      );
+
+      await userEvent.setup().click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+
+      expect(await screen.findByRole("dialog")).toBeInTheDocument();
+      expect(toPngMock).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("menu")).toBeNull();
     });
   });
 });

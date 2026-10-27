@@ -33,9 +33,9 @@ export type BugReportDialogProps = {
   nonce?: string;
   /** Shows the Technical details disclosure (default true); the details are sent either way. */
   technicalDetails?: boolean;
-  /** Shows the screenshot options: retake, when `onRetake` is given, and send without one (default true). */
+  /** No longer shows screenshot options; the screenshot is chosen before the dialog opens. Kept so existing code still compiles. */
   screenshotModes?: boolean;
-  /** Called with the words as typed when the reporter asks for a retake; the host takes the new screenshot and reopens with `initialDraft`. */
+  /** No longer called; a retake is chosen from the report button's menu. Kept so existing code still compiles. */
   onRetake?: (mode: RetakeMode, draft: Draft) => void;
   /** The draft to start from, in place of the saved one. */
   initialDraft?: Draft;
@@ -102,8 +102,6 @@ export function BugReportDialog(props: BugReportDialogProps) {
     classNames,
     nonce,
     technicalDetails = true,
-    screenshotModes = true,
-    onRetake,
     initialDraft,
     onSent,
     confirmation = "dialog",
@@ -118,7 +116,6 @@ export function BugReportDialog(props: BugReportDialogProps) {
   const [impact, setImpact] = useState<BugImpact>(restored?.impact ?? "workaround");
   const [draftSaved, setDraftSaved] = useState(() => readDraft() !== null);
   const [dataUrl, setDataUrl] = useState(capture.ok ? capture.dataUrl : null);
-  const [removed, setRemoved] = useState(false);
   const [descriptionInvalid, setDescriptionInvalid] = useState(false);
   const [oversize, setOversize] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>("idle");
@@ -275,18 +272,6 @@ export function BugReportDialog(props: BugReportDialogProps) {
     onClose();
   }
 
-  // WHY: while sending, the dialog must stay up to show the outcome; a retake would unmount it under the send.
-  function retake(mode: RetakeMode) {
-    if (sending || !onRetake) return;
-    onRetake(mode, { kind, summary, description, impact });
-  }
-
-  function removeScreenshot() {
-    if (sending) return;
-    setDataUrl(null);
-    setRemoved(true);
-  }
-
   async function send() {
     // WHY: aria-disabled leaves the button clickable, so the guard has to live in the handler.
     if (sending) return;
@@ -431,53 +416,12 @@ export function BugReportDialog(props: BugReportDialogProps) {
         ) : (
           <div {...partProps(classNames, "body")}>
             <div {...partProps(classNames, "image-column")}>
-              {screenshotModes && (onRetake !== undefined || dataUrl !== null) ? (
-                <div
-                  role="group"
-                  aria-label={labels.screenshotModes}
-                  {...partProps(classNames, "screenshot-modes")}
-                >
-                  {onRetake ? (
-                    <>
-                      <button
-                        type="button"
-                        {...partProps(classNames, "screenshot-mode")}
-                        onClick={() => retake("delay")}
-                        aria-disabled={sending}
-                      >
-                        {labels.retakeDelayed}
-                      </button>
-                      <button
-                        type="button"
-                        {...partProps(classNames, "screenshot-mode")}
-                        onClick={() => retake("key")}
-                        aria-disabled={sending}
-                      >
-                        {labels.retakeOnKey}
-                      </button>
-                    </>
-                  ) : null}
-                  {dataUrl !== null ? (
-                    <button
-                      type="button"
-                      {...partProps(classNames, "screenshot-mode")}
-                      onClick={removeScreenshot}
-                      aria-disabled={sending}
-                    >
-                      {labels.removeScreenshot}
-                    </button>
-                  ) : null}
-                </div>
-              ) : null}
               <ScreenshotPane
                 ref={paneRef}
                 dataUrl={dataUrl}
                 labels={labels}
-                onImageChosen={(chosen) => {
-                  setRemoved(false);
-                  setDataUrl(chosen);
-                }}
-                emptyMessage={removed ? labels.screenshotRemoved : undefined}
+                onImageChosen={(chosen) => setDataUrl(chosen)}
+                emptyMessage={capture.ok === false && capture.reason === "skipped" ? labels.screenshotRemoved : undefined}
                 expanded={expanded}
                 onToggleExpanded={() => setExpanded(!expanded)}
                 onMarkupChange={setMarkedUp}

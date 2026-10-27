@@ -319,10 +319,22 @@ export const BUGKIT_CSS = `@layer theme, base, bugkit, components, utilities;
     cursor: pointer;
   }
   :where([data-bugkit="screenshot-modes"]) {
+    position: fixed;
+    z-index: 60;
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 8px;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 220px;
+    padding: 4px;
+    border: 1px solid var(--color-border, #e5e5e5);
+    border-radius: var(--radius-md, 12px);
+    background: var(--color-card, #ffffff);
+    color: var(--color-card-foreground, #171717);
+  }
+  :where([data-bugkit="screenshot-modes"] > [data-bugkit="screenshot-mode"]) {
+    width: 100%;
+    border: 0;
+    text-align: left;
   }
   :where([data-bugkit="capture-hint"]) {
     position: fixed;
