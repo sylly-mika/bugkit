@@ -6,16 +6,19 @@ vi.mock("html-to-image", () => ({ toPng: vi.fn(), getFontEmbedCSS: vi.fn() }));
 const toPngMock = vi.mocked(toPng);
 const getFontEmbedCSSMock = vi.mocked(getFontEmbedCSS);
 
-function pageWithSealLayer(): HTMLButtonElement {
+function pageWithSealLayer(
+  url = "http://localhost:3000/ink/brush-seal.webp",
+  pseudo = "::before",
+): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "ink-seal";
   document.body.append(button);
   vi.spyOn(window, "getComputedStyle").mockImplementation(
-    (el: Element, pseudo?: string | null) =>
+    (el: Element, state?: string | null) =>
       ({
         getPropertyValue: (prop: string) =>
-          el === button && pseudo === "::before" && prop === "border-image-source"
-            ? 'url("http://localhost:3000/ink/brush-seal.webp")'
+          el === button && (state || "") === pseudo && prop === "border-image-source"
+            ? `url("${url}")`
             : "",
       }) as unknown as CSSStyleDeclaration,
   );
@@ -163,18 +166,18 @@ describe("capturePage", () => {
   });
 
   it("reads the page's font CSS once and reuses it for later captures", async () => {
-    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho}");
+    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}");
     toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
 
     await capturePage();
     await capturePage();
 
     expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(1);
-    expect(toPngMock.mock.calls[1][1]?.fontEmbedCSS).toBe("@font-face{font-family:Mincho}");
+    expect(toPngMock.mock.calls[1][1]?.fontEmbedCSS).toBe("@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}");
   });
 
   it("skips the font pass when captureFonts is off", async () => {
-    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho}");
+    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}");
     toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
 
     await capturePage({ captureFonts: false });
@@ -258,7 +261,7 @@ describe("capturePage", () => {
   it("leaves out a font slower than the bound and still captures", async () => {
     vi.useFakeTimers();
     getFontEmbedCSSMock.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve("@font-face{font-family:Mincho}"), 3_000)),
+      () => new Promise((resolve) => setTimeout(() => resolve("@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}"), 3_000)),
     );
     toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
 
@@ -284,14 +287,14 @@ describe("capturePage", () => {
 
   it("reads the page's fonts again after a failed read", async () => {
     getFontEmbedCSSMock.mockRejectedValueOnce(new Error("font 404"));
-    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho}");
+    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}");
     toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
 
     await capturePage();
     await capturePage();
 
     expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(2);
-    expect(toPngMock.mock.calls[1][1]?.fontEmbedCSS).toBe("@font-face{font-family:Mincho}");
+    expect(toPngMock.mock.calls[1][1]?.fontEmbedCSS).toBe("@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}");
   });
 
   it("fetches a seal once across captures", async () => {
@@ -322,6 +325,56 @@ describe("capturePage", () => {
     await capturePage();
 
     expect(String(toPngMock.mock.calls[0][1]?.fontEmbedCSS)).not.toContain("border-image-source");
+  });
+
+  it("does not fetch a seal from an origin that is not allowed", async () => {
+    pageWithSealLayer("https://other.test/s.webp");
+    const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => new Blob(["seal"], { type: "image/webp" }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(String(toPngMock.mock.calls[0][1]?.fontEmbedCSS)).not.toContain("border-image-source");
+  });
+
+  it("still captures when a seal cannot be fetched", async () => {
+    pageWithSealLayer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    );
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await expect(capturePage()).resolves.toEqual({ ok: true, dataUrl: "data:image/png;base64,AAAA" });
+  });
+
+  it("inlines a border-image seal on the element itself, not only on a pseudo-element", async () => {
+    pageWithSealLayer("http://localhost:3000/ink/brush-seal.webp", "");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob(["seal"], { type: "image/webp" }) })));
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+
+    expect(String(toPngMock.mock.calls[0][1]?.fontEmbedCSS)).toMatch(
+      /\[data-bugkit-layer="0"\] \{ border-image-source: url\("data:image\/webp;base64,c2VhbA=="\) !important;/,
+    );
+  });
+
+  it("embeds a font in another format when the woff2 read finds no source for it", async () => {
+    getFontEmbedCSSMock.mockImplementation(async (_node, options) =>
+      options?.preferredFontFormat
+        ? "@font-face { font-family: Probe; }"
+        : '@font-face { font-family: Probe; src: url("data:font/ttf;base64,AAAA") format("truetype"); }',
+    );
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+
+    expect(toPngMock.mock.calls[0][1]?.fontEmbedCSS).toContain('format("truetype")');
   });
 
   // See viewportFraming in capture.ts: a viewport-sized picture of a

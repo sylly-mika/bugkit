@@ -244,8 +244,19 @@ function cachedRead(key: string, read: () => Promise<string>): Promise<string | 
   return within(pending, null);
 }
 
+/**
+ * WHY: with woff2 preferred, html-to-image leaves a face declared in another
+ * format as a bare `@font-face` with no `src`, so that face is read again in
+ * whatever format the page declares.
+ */
+const FACE_WITHOUT_SOURCE = /@font-face\s*\{(?![^}]*\bsrc\s*:)/;
+
 function pageFontCSS(): Promise<string | null> {
-  return cachedRead("fonts", () => getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" }));
+  return cachedRead("fonts", () =>
+    getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" }).then((css) =>
+      FACE_WITHOUT_SOURCE.test(css) ? getFontEmbedCSS(document.body) : css,
+    ),
+  );
 }
 
 export async function capturePage(options: CaptureOptions = {}): Promise<CaptureResult> {
