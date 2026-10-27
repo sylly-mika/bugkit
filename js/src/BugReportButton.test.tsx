@@ -395,6 +395,23 @@ describe("BugReportButton", () => {
       }
     });
 
+    it("gives a second notice of the same number its full time", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderButton();
+
+      await sendReport(user);
+      expect(await screen.findByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(3_000));
+
+      await sendReport(user);
+      act(() => vi.advanceTimersByTime(3_000));
+      expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(2_500));
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+    });
+
     it("goes at once when its close button is pressed", async () => {
       const user = userEvent.setup();
       renderButton();

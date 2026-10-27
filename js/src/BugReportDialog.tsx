@@ -366,6 +366,12 @@ export function BugReportDialog(props: BugReportDialogProps) {
 
   const descriptionDescribedBy = descriptionInvalid ? `${ERROR_ID} ${COUNTER_ID}` : COUNTER_ID;
   const descriptionNeeded = summary.trim() === "";
+  // WHY: a v0.9.0 host sets only its own descriptionRequired; its both-empty message must keep that text.
+  const bothEmptyMessage =
+    labelOverrides?.summaryOrDescriptionRequired === undefined &&
+    labelOverrides?.[kind]?.descriptionRequired !== undefined
+      ? labels[kind].descriptionRequired
+      : labels.summaryOrDescriptionRequired;
 
   return createPortal(
     <div {...partProps(classNames, "overlay")} role="dialog" aria-modal="true" aria-labelledby={TITLE_ID}>
@@ -541,7 +547,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   </p>
                   {descriptionInvalid ? (
                     <p id={ERROR_ID} role="alert" {...partProps(classNames, "error")}>
-                      {labels.summaryOrDescriptionRequired}
+                      {bothEmptyMessage}
                     </p>
                   ) : null}
                 </div>

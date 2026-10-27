@@ -96,7 +96,8 @@ export function BugReportButton(props: BugReportButtonProps) {
   } = props;
   const labels: ResolvedBugReportLabels = mergeLabels(props.labels);
   const [session, setSession] = useState<Session | null>(null);
-  const [notice, setNotice] = useState<{ number: number } | null>(null);
+  const [notice, setNotice] = useState<{ id: number; number: number } | null>(null);
+  const noticeIds = useRef(0);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   // The guard the state cannot be: two presses in one tick both read the
@@ -133,7 +134,7 @@ export function BugReportButton(props: BugReportButtonProps) {
 
   function sent(result: { number: number }) {
     if (onSent) onSent(result);
-    else if (confirmation === "notice") setNotice(result);
+    else if (confirmation === "notice") setNotice({ id: ++noticeIds.current, number: result.number });
   }
 
   // WHY: the ref stays set through the wait, so the launcher cannot start a second capture while the dialog is away.
@@ -276,7 +277,7 @@ export function BugReportButton(props: BugReportButtonProps) {
         </div>
         {notice ? (
           <SentNotice
-            key={notice.number}
+            key={notice.id}
             text={formatFiled(labels.sentNotice, notice.number)}
             closeLabel={labels.close}
             classNames={classNames}

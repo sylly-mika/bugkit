@@ -190,6 +190,17 @@ describe("BugReportDialog", () => {
     expect(screen.getByText("summaryOrDescriptionRequired")).toBeInTheDocument();
   });
 
+  it("keeps a host's own descriptionRequired text for the both-empty message", async () => {
+    const user = userEvent.setup();
+    const { submit } = renderDialog({ labels: { bug: { descriptionRequired: "Tell us what broke." } } });
+
+    await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
+
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.getByText("Tell us what broke.")).toBeInTheDocument();
+    expect(screen.queryByText(defaultLabels.summaryOrDescriptionRequired)).toBeNull();
+  });
+
   it("keeps the summary within the server's cap and counts the description", async () => {
     const user = userEvent.setup();
     renderDialog();
