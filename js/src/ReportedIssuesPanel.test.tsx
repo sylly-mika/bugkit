@@ -142,6 +142,43 @@ describe("ReportedIssuesPanel", () => {
     expect(dialog.textContent).not.toContain("secret detail");
   });
 
+  it("retries a first load that failed, and loads the list on Try again", async () => {
+    const user = userEvent.setup();
+    let calls = 0;
+    const listReports = vi.fn(async (_page: number): Promise<ReportedIssuesPage> => {
+      calls += 1;
+      if (calls === 1) throw new Error("secret detail");
+      return answer([login], { page: 1, per_page: 20, total: 1, total_pages: 1 });
+    });
+    renderButton({ listReports });
+
+    const dialog = await openReports(user);
+    await user.click(await within(dialog).findByRole("button", { name: "Try again" }));
+
+    expect(await within(dialog).findByText("#12 Login fails")).toBeInTheDocument();
+    expect(listReports.mock.calls).toEqual([[1], [1]]);
+  });
+
+  it("retries the page that failed, not the first page", async () => {
+    const user = userEvent.setup();
+    let pageTwoCalls = 0;
+    const listReports = vi.fn(async (page: number): Promise<ReportedIssuesPage> => {
+      if (page === 1) return answer([three], { page: 1, per_page: 1, total: 2, total_pages: 2 });
+      pageTwoCalls += 1;
+      if (pageTwoCalls === 1) throw new Error("secret detail");
+      return answer([two], { page: 2, per_page: 1, total: 2, total_pages: 2 });
+    });
+    renderButton({ listReports });
+
+    const dialog = await openReports(user);
+    await within(dialog).findByText("#3 Three");
+    await user.click(within(dialog).getByRole("button", { name: "Next" }));
+    await user.click(await within(dialog).findByRole("button", { name: "Try again" }));
+
+    expect(await within(dialog).findByText("#2 Two")).toBeInTheDocument();
+    expect(listReports.mock.calls).toEqual([[1], [2], [2]]);
+  });
+
   it("shows an empty list", async () => {
     const user = userEvent.setup();
     const listReports = vi.fn(async (_page: number): Promise<ReportedIssuesPage> =>

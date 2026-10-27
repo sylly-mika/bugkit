@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { toPng } from "html-to-image";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -114,5 +114,31 @@ describe("BugReport", () => {
     await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
     await user.click(await screen.findByRole("menuitem", { name: defaultLabels.reportedIssues }));
     expect(await screen.findByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+  });
+
+  it("gives up on a list request that never answers after 30 seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<BugReport reportsEndpoint="/api/v1/bug-reports" />);
+      fireEvent.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+      fireEvent.click(screen.getByRole("menuitem", { name: defaultLabels.reportedIssues }));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(29_000));
+      expect(screen.getByText(defaultLabels.reportsLoading)).toBeInTheDocument();
+
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.getByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

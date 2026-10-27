@@ -87,9 +87,18 @@ export function ReportedIssuesPanel(props: {
             {labels.reportsLoading}
           </p>
         ) : view.state === "failed" ? (
-          <p role="alert" {...partProps(classNames, "error")}>
-            {labels.reportsFailed}
-          </p>
+          <>
+            <p role="alert" {...partProps(classNames, "error")}>
+              {labels.reportsFailed}
+            </p>
+            <button
+              type="button"
+              {...partProps(classNames, "secondary-button")}
+              onClick={() => load(view.page)}
+            >
+              {labels.reportsRetry}
+            </button>
+          </>
         ) : view.data.length === 0 ? (
           <p {...partProps(classNames, "muted")}>{labels.reportsEmpty}</p>
         ) : (

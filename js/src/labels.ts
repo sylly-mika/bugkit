@@ -112,6 +112,7 @@ export type BugReportLabels = {
   reportsColumnChanged?: string;
   reportsLoading?: string;
   reportsFailed?: string;
+  reportsRetry?: string;
   reportsEmpty?: string;
   reportsUnknownReporter?: string;
   reportsPrevious?: string;
@@ -245,6 +246,7 @@ export const defaultLabels: ResolvedBugReportLabels = {
   reportsColumnChanged: "Last changed",
   reportsLoading: "Loading reports…",
   reportsFailed: "The reports could not be loaded.",
+  reportsRetry: "Try again",
   reportsEmpty: "No reports yet.",
   reportsUnknownReporter: "Unknown",
   reportsPrevious: "Previous",

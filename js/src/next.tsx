@@ -11,6 +11,8 @@ import type {
 
 export type { BugReportClassNames } from "./theme.js";
 
+const REPORTS_TIMEOUT_MS = 30_000;
+
 export type BugReportProps = Omit<BugReportButtonProps, "submit" | "getContext"> & {
   endpoint?: string;
   init?: RequestInit | (() => RequestInit | Promise<RequestInit>);
@@ -46,9 +48,20 @@ export function BugReport({
 
   const listReports: ReportedIssuesList = async (page) => {
     const resolvedInit = typeof init === "function" ? await init() : (init ?? {});
-    const response = await fetch(`${reportsEndpoint}?page=${page}`, { ...resolvedInit, method: "GET" });
-    if (!response.ok) throw new Error(`bugkit: reports answered ${response.status}`);
-    return (await response.json()) as ReportedIssuesPage;
+    const controller = new AbortController();
+    // WHY: a host that never answers would leave "Loading reports…" on screen forever.
+    const timer = setTimeout(() => controller.abort(), REPORTS_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${reportsEndpoint}?page=${page}`, {
+        ...resolvedInit,
+        method: "GET",
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`bugkit: reports answered ${response.status}`);
+      return (await response.json()) as ReportedIssuesPage;
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
   return (
