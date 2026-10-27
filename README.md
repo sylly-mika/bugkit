@@ -465,6 +465,38 @@ out := sourcemap.Symbolicate(stack, sourcemap.DirLoader("sourcemaps"))
 For a single position, use `sourcemap.Parse` and `(*Map).Lookup(line,
 column)`; both take and return 1-based lines and columns.
 
+## Show the reported issues
+
+With `listReports` set on `BugReportButton`, or `reportsEndpoint` set on
+`BugReport`, the screenshot menu gets a "Reported issues" item. It opens a
+read-only panel of the site's reports, newest first, 20 to a page, with each
+report's number, title, status, reporter and dates. Without either prop the
+menu is as before.
+
+```tsx
+<BugReport reportsEndpoint="/api/v1/bug-reports" init={{ credentials: "include" }} />
+```
+
+Go: `intake.Client.List(ctx, page)` asks the intake for one page of its
+reports, with the key sent only in the `Authorization` header.
+`bugkit.ListHandler(bugkit.ListConfig{Who, Lister, Logger})` serves that list
+as `GET /api/v1/bug-reports?page=<n>` (the page defaults to 1), with the key
+kept on the server. `Who` is the callback from `bugkit.Config`; `Lister` is
+your `intake.Client`. `ListHandler` answers 401 `Not authenticated.` for no
+signed-in reporter, 503 `Bug reporting is not configured on this server.` when
+`Lister` is nil or the intake refuses the key, and 502 `The reports could not
+be loaded.` for any other failure. A 200 answer is the intake's JSON page.
+`Who` must admit only the people who may read the list; a `Who` that admits any signed-in reporter shows them every report of the project.
+
+The panel's text comes from 13 optional labels in `labels`: `reportedIssues`,
+`reportsColumnTitle`, `reportsColumnStatus`, `reportsColumnReporter`,
+`reportsColumnReported`, `reportsColumnChanged`, `reportsLoading`,
+`reportsFailed`, `reportsEmpty`, `reportsUnknownReporter`, `reportsPrevious`,
+`reportsNext`, and `reportsPage`, where `{page}` and `{pages}` are replaced.
+The status names default to English: `triage` is "Received", `todo` is
+"Planned", `in_progress` is "In progress", `done` is "Done" and `cancelled` is
+"Closed". `statusLabels` overrides any of them.
+
 ## Configuration reference
 
 ### Go: `bugkit.Config`
@@ -514,6 +546,8 @@ output shows it as `<redacted>`. The client never follows a redirect.
 | `screenshotModes` | `boolean` | `true` | Pressing the button opens a menu: screenshot now, in 3 seconds, on the S key, or send without a screenshot. `false` takes the screenshot at once, with no menu. |
 | `onSent` | `(result: { number: number }) => void` | none | Called after a send with the filed number. With it set, bugkit shows no notice, so the host can show its own. |
 | `confirmation` | `"notice" \| "dialog"` | `"notice"` | After a send, `"notice"` closes the dialog and shows a notice for about 5 seconds; `"dialog"` keeps the v0.9.0 sent view in the dialog. |
+| `listReports` | `(page: number) => Promise<ReportedIssuesPage>` | none | With it set and the menu on, the menu gets a "Reported issues" item that opens a read-only, paged list of the site's reports. See [Show the reported issues](#show-the-reported-issues). |
+| `statusLabels` | `Partial<Record<"triage" \| "todo" \| "in_progress" \| "done" \| "cancelled", string>>` | the English names | Text per status category on the reports list; a category left out keeps its English default, and an unknown category shows the status name. |
 
 ### npm: `BugReport` (`@sylly-mika/bugkit/next`)
 
@@ -525,6 +559,7 @@ All `BugReportButton` props except `submit`, plus:
 | `init` | `RequestInit` or `() => RequestInit \| Promise<RequestInit>` | none | Merged into the request, for example `{ credentials: "include" }`. |
 | `version` | `string` | none | Your build id, sent in the report's context. |
 | `getContext` | `() => BugReportContext` | optional here | Overrides the context. |
+| `reportsEndpoint` | `string` | none | URL of the reports list, for example `/api/v1/bug-reports`. With it set, the menu gets "Reported issues"; bugkit requests `?page=<n>` on it with `init` merged in. |
 
 ### npm: `createBugReportRoute` options (`@sylly-mika/bugkit/server`)
 

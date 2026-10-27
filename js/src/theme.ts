@@ -50,6 +50,9 @@ export const BUG_REPORT_PARTS = [
   "notice",
   "notice-text",
   "notice-close",
+  "reports-table",
+  "reports-status",
+  "reports-pager",
 ] as const;
 
 export type BugReportPart = (typeof BUG_REPORT_PARTS)[number];
@@ -388,6 +391,11 @@ export const BUGKIT_CSS = `@layer theme, base, bugkit, components, utilities;
     font: inherit;
     cursor: pointer;
   }
+  :where([data-bugkit="reports-table"]) { width: 100%; border-collapse: collapse; font-size: var(--font-sm, 13px); }
+  :where([data-bugkit="reports-table"] th), :where([data-bugkit="reports-table"] td) { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--color-border, #e5e5e5); vertical-align: top; }
+  :where([data-bugkit="reports-table"] th) { font-weight: 500; color: var(--color-muted-foreground, #666666); white-space: nowrap; }
+  :where([data-bugkit="reports-status"]) { white-space: nowrap; }
+  :where([data-bugkit="reports-pager"]) { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 12px; }
   @media (prefers-reduced-motion: reduce) {
     :where([data-bugkit="notice"]) {
       transition: none;

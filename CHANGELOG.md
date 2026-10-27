@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.12.0
+
+- npm: BugReportButton takes listReports, and BugReport takes reportsEndpoint:
+  the menu gets a "Reported issues" item that opens a read-only, paged list of
+  the site's reports.
+- npm: the reports list's failed state has a Try again button that reloads the
+  current page, and a request that takes longer than 30 seconds fails the same
+  way.
+- go: intake.Client.List and bugkit.ListHandler forward the list request; the
+  key stays on the server.
+- Nothing is removed.
+
 ## v0.11.3
 
 - npm: the supported Next.js range is declared as an optional peer dependency,

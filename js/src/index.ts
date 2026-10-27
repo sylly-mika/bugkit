@@ -3,7 +3,7 @@ export type { BugReportButtonProps } from "./BugReportButton.js";
 export { BugReportDialog } from "./BugReportDialog.js";
 export { ScreenshotEditor } from "./ScreenshotEditor.js";
 export type { ScreenshotEditorHandle, ScreenshotEditorProps } from "./ScreenshotEditor.js";
-export type { BugReportResult, BugReportSubmit } from "./payload.js";
+export type { BugReportResult, BugReportSubmit, ReportedIssue, ReportedIssuesList, ReportedIssuesPage } from "./payload.js";
 export { BUG_REPORT_PARTS } from "./theme.js";
 export type { BugReportPart, BugReportClassNames } from "./theme.js";
 export { defaultLabels } from "./labels.js";

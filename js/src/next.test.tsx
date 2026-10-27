@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { toPng } from "html-to-image";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,4 +82,135 @@ describe("BugReport", () => {
     expect(init).toHaveBeenCalledTimes(1);
     expect(await screen.findByText("An area is required.")).toBeInTheDocument();
   });
+
+  it("lists the reports through reportsEndpoint with init, and shows a failed list", async () => {
+    const user = userEvent.setup();
+    const report = {
+      number: 5,
+      title: "Old bug",
+      status: "Done",
+      status_category: "done",
+      reporter_name: null,
+      reported_at: "2026-01-02T10:00:00Z",
+      updated_at: "2026-01-03T10:00:00Z",
+    };
+    const meta = { page: 1, per_page: 20, total: 1, total_pages: 1 };
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => answer(200, { data: [report], meta }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<BugReport reportsEndpoint="/api/v1/bug-reports" init={{ headers: { "X-CSRF": "t" } }} />);
+    await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.reportedIssues }));
+
+    expect(await screen.findByText("#5 Old bug")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, requestInit] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/bug-reports?page=1");
+    expect(requestInit).toMatchObject({ method: "GET", headers: { "X-CSRF": "t" } });
+
+    cleanup();
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, _init?: RequestInit) => answer(500, { detail: "boom" })));
+    render(<BugReport reportsEndpoint="/api/v1/bug-reports" />);
+    await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.reportedIssues }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+  });
+
+  it("offers no Reported issues item without reportsEndpoint", async () => {
+    const user = userEvent.setup();
+    render(<BugReport />);
+
+    await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+    expect(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: defaultLabels.reportedIssues })).toBeNull();
+  });
+
+  it("gives up on a list request that never answers after 30 seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchMock = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<BugReport reportsEndpoint="/api/v1/bug-reports" />);
+      fireEvent.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+      fireEvent.click(screen.getByRole("menuitem", { name: defaultLabels.reportedIssues }));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(29_000));
+      expect(screen.getByText(defaultLabels.reportsLoading)).toBeInTheDocument();
+
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.getByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("aborts a list request when the host's own signal aborts", async () => {
+    await hostAbortCancelsTheListRequest();
+  });
+
+  it("aborts a list request when the host's signal aborts where AbortSignal.any is missing", async () => {
+    const native = AbortSignal.any;
+    Object.defineProperty(AbortSignal, "any", { value: undefined, configurable: true, writable: true });
+    try {
+      await hostAbortCancelsTheListRequest();
+    } finally {
+      Object.defineProperty(AbortSignal, "any", { value: native, configurable: true, writable: true });
+    }
+  });
+
+  it("still gives up after 30 seconds when the host also passes a signal", async () => {
+    vi.useFakeTimers();
+    try {
+      const host = new AbortController();
+      const fetchMock = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<BugReport reportsEndpoint="/api/v1/bug-reports" init={{ signal: host.signal }} />);
+      fireEvent.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+      fireEvent.click(screen.getByRole("menuitem", { name: defaultLabels.reportedIssues }));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(29_000));
+      expect(screen.getByText(defaultLabels.reportsLoading)).toBeInTheDocument();
+
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.getByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+      expect(host.signal.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+async function hostAbortCancelsTheListRequest() {
+  const user = userEvent.setup();
+  const host = new AbortController();
+  const fetchMock = vi.fn(
+    (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BugReport reportsEndpoint="/api/v1/bug-reports" init={{ signal: host.signal }} />);
+  await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+  await user.click(await screen.findByRole("menuitem", { name: defaultLabels.reportedIssues }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+  host.abort();
+  expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  expect(await screen.findByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+}

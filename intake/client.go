@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -156,4 +157,38 @@ func retryAfter(h string) time.Duration {
 		return 0
 	}
 	return time.Duration(n) * time.Second
+}
+
+var _ bugkit.Lister = (*Client)(nil)
+
+// List answers one page of the intake's reports. A 200 is the page. Every other
+// answer is a *bugkit.SinkError; the key is sent only in the Authorization header.
+func (c *Client) List(ctx context.Context, page int) (bugkit.ReportPage, error) {
+	q := url.Values{"page": {strconv.Itoa(page)}, "per_page": {strconv.Itoa(bugkit.ListPageSize)}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+"?"+q.Encode(), nil)
+	if err != nil {
+		return bugkit.ReportPage{}, fmt.Errorf("bugkit: intake request failed: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Key)
+	req.Header.Set("Accept", "application/json")
+
+	client := c.HTTP
+	if client == nil {
+		client = newHTTPClient()
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return bugkit.ReportPage{}, fmt.Errorf("bugkit: intake request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+		return bugkit.ReportPage{}, &bugkit.SinkError{Status: resp.StatusCode}
+	}
+	var out bugkit.ReportPage
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+		return bugkit.ReportPage{}, errors.New("bugkit: intake answered 200 with an unreadable body")
+	}
+	return out, nil
 }
