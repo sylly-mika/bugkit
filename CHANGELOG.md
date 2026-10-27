@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.11.3
+
+- npm: the supported Next.js range is declared as an optional peer dependency,
+  `^15.5.0 || ^16.4.3`, the versions the CI matrix builds with the App Router.
+  Hosts that do not use Next.js need not install it.
+- npm: `examples/next` is a minimal App Router app that mounts `BugReport` and
+  the route handler as the README shows. CI builds it against both Next.js
+  majors. It is not part of the published package.
+- Nothing is removed from the API.
+
 ## v0.11.2
 
 - npm: the report button injects bugkit's styles itself, so the screenshot

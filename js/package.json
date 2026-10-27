@@ -1,6 +1,6 @@
 {
   "name": "@sylly-mika/bugkit",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "description": "Bug report button, dialog and screenshot capture for React apps that send reports through bugkit's Go handler.",
   "license": "MIT",
   "type": "module",
@@ -41,8 +41,14 @@
   },
   "peerDependencies": {
     "html-to-image": "^1.11.13",
+    "next": "^15.5.0 || ^16.4.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
