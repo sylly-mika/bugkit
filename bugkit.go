@@ -75,3 +75,44 @@ type Config struct {
 	Limits  Limits
 	Logger  *slog.Logger
 }
+
+// ListPageSize is the page size the intake client asks for.
+const ListPageSize = 20
+
+// ReportSummary is one report in the intake's list.
+type ReportSummary struct {
+	Number         int       `json:"number"`
+	Title          string    `json:"title"`
+	Status         string    `json:"status"`
+	StatusCategory string    `json:"status_category"`
+	ReporterName   *string   `json:"reporter_name"`
+	ReportedAt     time.Time `json:"reported_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// PageMeta describes where a page sits in the list.
+type PageMeta struct {
+	Page       int `json:"page"`
+	PerPage    int `json:"per_page"`
+	Total      int `json:"total"`
+	TotalPages int `json:"total_pages"`
+}
+
+// ReportPage is one page of the intake's list.
+type ReportPage struct {
+	Data []ReportSummary `json:"data"`
+	Meta PageMeta        `json:"meta"`
+}
+
+// Lister lists the reports filed through the intake, one page at a time.
+type Lister interface {
+	List(ctx context.Context, page int) (ReportPage, error)
+}
+
+// ListConfig configures ListHandler. Who and Lister are required; Logger
+// defaults to slog.Default().
+type ListConfig struct {
+	Lister Lister
+	Who    func(*http.Request) (Reporter, bool)
+	Logger *slog.Logger
+}

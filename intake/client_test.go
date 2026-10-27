@@ -502,3 +502,108 @@ func TestSubmitIsSafeForConcurrentUse(t *testing.T) {
 		}
 	}
 }
+
+func TestListSendsTheIntakeRequest(t *testing.T) {
+	var mu sync.Mutex
+	var method, path, query, auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		method, path, query, auth = r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("Authorization")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[{"number":12,"title":"Login fails","status":"Done","status_category":"done","reporter_name":null,"reported_at":"2026-10-20T10:00:00Z","updated_at":"2026-10-21T10:00:00Z"}],"meta":{"page":2,"per_page":20,"total":21,"total_pages":2}}`)
+	}))
+	defer srv.Close()
+
+	key := testKey()
+	page, err := intake.New(srv.URL+intakePath, key).List(context.Background(), 2)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if method != http.MethodGet {
+		t.Errorf("method = %s, want GET", method)
+	}
+	if path != intakePath {
+		t.Errorf("path = %s, want %s", path, intakePath)
+	}
+	if query != "page=2&per_page=20" {
+		t.Errorf("query = %q, want page=2&per_page=20", query)
+	}
+	if auth != "Bearer "+key {
+		t.Errorf("Authorization is not the intake key (<redacted>)")
+	}
+
+	if len(page.Data) != 1 {
+		t.Fatalf("got %d items, want 1", len(page.Data))
+	}
+	item := page.Data[0]
+	if item.Number != 12 || item.Title != "Login fails" || item.Status != "Done" || item.StatusCategory != "done" {
+		t.Errorf("item = %+v", item)
+	}
+	if item.ReporterName != nil {
+		t.Errorf("ReporterName = %q, want nil", *item.ReporterName)
+	}
+	if !item.ReportedAt.Equal(time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("ReportedAt = %v", item.ReportedAt)
+	}
+	if !item.UpdatedAt.Equal(time.Date(2026, 10, 21, 10, 0, 0, 0, time.UTC)) {
+		t.Errorf("UpdatedAt = %v", item.UpdatedAt)
+	}
+	if want := (bugkit.PageMeta{Page: 2, PerPage: 20, Total: 21, TotalPages: 2}); page.Meta != want {
+		t.Errorf("meta = %+v, want %+v", page.Meta, want)
+	}
+}
+
+func TestListAnswersErrors(t *testing.T) {
+	var elsewhere atomic.Int32
+	cases := []struct {
+		name       string
+		respond    func(w http.ResponseWriter, r *http.Request)
+		sinkStatus int
+		text       string
+	}{
+		{"a refused key", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }, 401, ""},
+		{"an intake failure", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }, 500, ""},
+		{"a redirect", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != intakePath {
+				elsewhere.Add(1)
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			http.Redirect(w, r, "/elsewhere", http.StatusFound)
+		}, 302, ""},
+		{"an unreadable 200", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "{") }, 0,
+			"bugkit: intake answered 200 with an unreadable body"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(tc.respond))
+			defer srv.Close()
+			key := testKey()
+
+			_, err := intake.New(srv.URL+intakePath, key).List(context.Background(), 1)
+			if err == nil {
+				t.Fatal("List returned no error")
+			}
+			if strings.Contains(err.Error(), key) {
+				t.Error("the error holds the intake key")
+			}
+			if n := elsewhere.Load(); n != 0 {
+				t.Fatalf("the redirect target was hit %d times", n)
+			}
+			if tc.text != "" {
+				if err.Error() != tc.text {
+					t.Fatalf("error = %q, want %q", err.Error(), tc.text)
+				}
+				return
+			}
+			var se *bugkit.SinkError
+			if !errors.As(err, &se) || se.Status != tc.sinkStatus {
+				t.Fatalf("error = %v, want a *SinkError with status %d", err, tc.sinkStatus)
+			}
+		})
+	}
+}
