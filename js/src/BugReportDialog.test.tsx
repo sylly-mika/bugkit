@@ -192,9 +192,12 @@ describe("BugReportDialog", () => {
 
   it("keeps a host's own descriptionRequired text for the both-empty message", async () => {
     const user = userEvent.setup();
-    const { submit } = renderDialog({ labels: { bug: { descriptionRequired: "Tell us what broke." } } });
+    const { summaryOrDescriptionRequired: _summaryOrDescriptionRequired, ...hostLabels } = labels;
+    const { submit } = renderDialog({
+      labels: { ...hostLabels, bug: { ...labels.bug, descriptionRequired: "Tell us what broke." } },
+    });
 
-    await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
+    await user.click(screen.getByRole("button", { name: labels.bug.send }));
 
     expect(submit).not.toHaveBeenCalled();
     expect(screen.getByText("Tell us what broke.")).toBeInTheDocument();

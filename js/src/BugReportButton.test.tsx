@@ -405,6 +405,7 @@ describe("BugReportButton", () => {
       act(() => vi.advanceTimersByTime(3_000));
 
       await sendReport(user);
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
       act(() => vi.advanceTimersByTime(3_000));
       expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
 
