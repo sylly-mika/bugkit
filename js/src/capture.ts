@@ -150,7 +150,11 @@ function borderImageLonghands(el: Element, pseudo: string): string {
 }
 
 async function toDataUrl(url: string): Promise<string> {
-  const blob = await (await fetch(url)).blob();
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`seal responded ${response.status}`);
+  }
+  const blob = await response.blob();
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -187,10 +191,10 @@ function markBorderImages(
     marked.push(el);
     for (const { pseudo, url, longhands } of layers) {
       pending.push(
-        toDataUrl(url).then(
-          (dataUrl) =>
-            `[${LAYER_ATTRIBUTE}="${n}"]${pseudo} { border-image-source: url("${dataUrl}") !important; ${longhands} }`,
-          () => "",
+        cachedRead(`seal:${url}`, () => toDataUrl(url)).then((dataUrl) =>
+          dataUrl
+            ? `[${LAYER_ATTRIBUTE}="${n}"]${pseudo} { border-image-source: url("${dataUrl}") !important; ${longhands} }`
+            : "",
         ),
       );
     }
@@ -205,24 +209,43 @@ function markBorderImages(
   };
 }
 
+const READ_BOUND_MS = 1_500;
+
+function within<T>(pending: Promise<T>, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), READ_BOUND_MS);
+  });
+  return Promise.race([pending.catch(() => fallback), bound]).finally(() => clearTimeout(timer));
+}
+
 /**
- * WHY: the page's fonts do not change between reports, and html-to-image would
- * otherwise walk every stylesheet and fetch every font again on each capture. A
- * font that cannot be read leaves the picture on the browser's own face rather
- * than failing it, and the failure is cached with the rest, so a broken font is
- * not refetched on every press.
+ * WHY: the page's fonts and seals do not change between reports, and
+ * html-to-image would otherwise walk every stylesheet and fetch every font again
+ * on each capture. A read that fails is dropped, so the next capture reads it
+ * again. A read that is still pending after READ_BOUND_MS is left out of this
+ * capture, and the read itself is kept, so a slow font serves the captures
+ * after it.
  */
-let pageFonts: Promise<string | null> | undefined;
+const reads = new Map<string, Promise<string>>();
 
 export function clearPageFonts(): void {
-  pageFonts = undefined;
+  reads.clear();
+}
+
+function cachedRead(key: string, read: () => Promise<string>): Promise<string | null> {
+  let pending = reads.get(key);
+  if (!pending) {
+    const fresh = Promise.resolve().then(read);
+    fresh.catch(() => reads.delete(key));
+    reads.set(key, fresh);
+    pending = fresh;
+  }
+  return within(pending, null);
 }
 
 function pageFontCSS(): Promise<string | null> {
-  pageFonts ??= Promise.resolve()
-    .then(() => getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" }))
-    .catch(() => null);
-  return pageFonts;
+  return cachedRead("fonts", () => getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" }));
 }
 
 export async function capturePage(options: CaptureOptions = {}): Promise<CaptureResult> {

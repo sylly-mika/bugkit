@@ -6,6 +6,22 @@ vi.mock("html-to-image", () => ({ toPng: vi.fn(), getFontEmbedCSS: vi.fn() }));
 const toPngMock = vi.mocked(toPng);
 const getFontEmbedCSSMock = vi.mocked(getFontEmbedCSS);
 
+function pageWithSealLayer(): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = "ink-seal";
+  document.body.append(button);
+  vi.spyOn(window, "getComputedStyle").mockImplementation(
+    (el: Element, pseudo?: string | null) =>
+      ({
+        getPropertyValue: (prop: string) =>
+          el === button && pseudo === "::before" && prop === "border-image-source"
+            ? 'url("http://localhost:3000/ink/brush-seal.webp")'
+            : "",
+      }) as unknown as CSSStyleDeclaration,
+  );
+  return button;
+}
+
 describe("capturePage", () => {
   beforeEach(() => {
     toPngMock.mockReset();
@@ -16,6 +32,7 @@ describe("capturePage", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -185,7 +202,7 @@ describe("capturePage", () => {
         return { getPropertyValue: (prop: string) => (prop === "border-image-source" ? source : "") } as unknown as CSSStyleDeclaration;
       },
     );
-    vi.stubGlobal("fetch", vi.fn(async () => ({ blob: async () => new Blob(["seal"], { type: "image/webp" }) })));
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob(["seal"], { type: "image/webp" }) })));
     toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
 
     await capturePage();
@@ -224,6 +241,87 @@ describe("capturePage", () => {
     expect(css).toMatch(/border-image-width:\s*10px\s*!important/);
     expect(css).toMatch(/border-image-outset:\s*0px\s*!important/);
     expect(css).toMatch(/border-image-repeat:\s*stretch\s*!important/);
+  });
+
+  it("leaves out a font that never settles and still captures", async () => {
+    vi.useFakeTimers();
+    getFontEmbedCSSMock.mockReturnValue(new Promise(() => {}));
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    const pending = capturePage();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(pending).resolves.toEqual({ ok: true, dataUrl: "data:image/png;base64,AAAA" });
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
+  });
+
+  it("leaves out a font slower than the bound and still captures", async () => {
+    vi.useFakeTimers();
+    getFontEmbedCSSMock.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve("@font-face{font-family:Mincho}"), 3_000)),
+    );
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    const pending = capturePage();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(pending).resolves.toEqual({ ok: true, dataUrl: "data:image/png;base64,AAAA" });
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
+  });
+
+  it("leaves out a seal that never settles and still captures", async () => {
+    vi.useFakeTimers();
+    pageWithSealLayer();
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    const pending = capturePage();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(pending).resolves.toEqual({ ok: true, dataUrl: "data:image/png;base64,AAAA" });
+    expect(String(toPngMock.mock.calls[0][1]?.fontEmbedCSS)).not.toContain("border-image-source");
+  });
+
+  it("reads the page's fonts again after a failed read", async () => {
+    getFontEmbedCSSMock.mockRejectedValueOnce(new Error("font 404"));
+    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho}");
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+    await capturePage();
+
+    expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(2);
+    expect(toPngMock.mock.calls[1][1]?.fontEmbedCSS).toBe("@font-face{font-family:Mincho}");
+  });
+
+  it("fetches a seal once across captures", async () => {
+    pageWithSealLayer();
+    const fetchMock = vi.fn(async () => ({ ok: true, blob: async () => new Blob(["seal"], { type: "image/webp" }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+    await capturePage();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(toPngMock.mock.calls[1][1]?.fontEmbedCSS)).toContain("data:image/webp;base64,c2VhbA==");
+  });
+
+  it("does not inline a seal whose response is not ok", async () => {
+    pageWithSealLayer();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: false,
+        status: 404,
+        blob: async () => new Blob(["<html>not found</html>"], { type: "text/html" }),
+      })),
+    );
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+
+    expect(String(toPngMock.mock.calls[0][1]?.fontEmbedCSS)).not.toContain("border-image-source");
   });
 
   // See viewportFraming in capture.ts: a viewport-sized picture of a
