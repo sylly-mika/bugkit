@@ -8,7 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@sylly-mika/bugkit": "file:../../js/sylly-mika-bugkit-0.11.2.tgz",
+    "@sylly-mika/bugkit": "file:../../js/sylly-mika-bugkit-0.11.3.tgz",
     "@types/node": "26.6.5",
     "next": "16.4.3",
     "react": "19.2.7",
