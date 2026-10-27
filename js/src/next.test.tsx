@@ -150,4 +150,67 @@ describe("BugReport", () => {
       vi.useRealTimers();
     }
   });
+
+  it("aborts a list request when the host's own signal aborts", async () => {
+    await hostAbortCancelsTheListRequest();
+  });
+
+  it("aborts a list request when the host's signal aborts where AbortSignal.any is missing", async () => {
+    const native = AbortSignal.any;
+    Object.defineProperty(AbortSignal, "any", { value: undefined, configurable: true, writable: true });
+    try {
+      await hostAbortCancelsTheListRequest();
+    } finally {
+      Object.defineProperty(AbortSignal, "any", { value: native, configurable: true, writable: true });
+    }
+  });
+
+  it("still gives up after 30 seconds when the host also passes a signal", async () => {
+    vi.useFakeTimers();
+    try {
+      const host = new AbortController();
+      const fetchMock = vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+          }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<BugReport reportsEndpoint="/api/v1/bug-reports" init={{ signal: host.signal }} />);
+      fireEvent.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+      fireEvent.click(screen.getByRole("menuitem", { name: defaultLabels.reportedIssues }));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      await act(() => vi.advanceTimersByTimeAsync(29_000));
+      expect(screen.getByText(defaultLabels.reportsLoading)).toBeInTheDocument();
+
+      await act(() => vi.advanceTimersByTimeAsync(1_000));
+      expect(screen.getByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+      expect(host.signal.aborted).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+async function hostAbortCancelsTheListRequest() {
+  const user = userEvent.setup();
+  const host = new AbortController();
+  const fetchMock = vi.fn(
+    (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  render(<BugReport reportsEndpoint="/api/v1/bug-reports" init={{ signal: host.signal }} />);
+  await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+  await user.click(await screen.findByRole("menuitem", { name: defaultLabels.reportedIssues }));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+  host.abort();
+  expect(fetchMock.mock.calls[0][1]?.signal?.aborted).toBe(true);
+  expect(await screen.findByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
+}

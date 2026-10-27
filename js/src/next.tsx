@@ -48,19 +48,31 @@ export function BugReport({
 
   const listReports: ReportedIssuesList = async (page) => {
     const resolvedInit = typeof init === "function" ? await init() : (init ?? {});
+    const hostSignal = resolvedInit.signal ?? undefined;
     const controller = new AbortController();
     // WHY: a host that never answers would leave "Loading reports…" on screen forever.
     const timer = setTimeout(() => controller.abort(), REPORTS_TIMEOUT_MS);
+    let signal = controller.signal;
+    let detach = () => {};
+    if (hostSignal !== undefined && typeof AbortSignal.any === "function") {
+      signal = AbortSignal.any([hostSignal, controller.signal]);
+    } else if (hostSignal !== undefined) {
+      const onHostAbort = () => controller.abort(hostSignal.reason);
+      if (hostSignal.aborted) onHostAbort();
+      else hostSignal.addEventListener("abort", onHostAbort, { once: true });
+      detach = () => hostSignal.removeEventListener("abort", onHostAbort);
+    }
     try {
       const response = await fetch(`${reportsEndpoint}?page=${page}`, {
         ...resolvedInit,
         method: "GET",
-        signal: controller.signal,
+        signal,
       });
       if (!response.ok) throw new Error(`bugkit: reports answered ${response.status}`);
       return (await response.json()) as ReportedIssuesPage;
     } finally {
       clearTimeout(timer);
+      detach();
     }
   };
 
