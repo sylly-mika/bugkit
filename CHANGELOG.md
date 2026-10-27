@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.11.2
+
+- npm: the report button injects bugkit's styles itself, so the screenshot
+  menu, the capture hint and the sent-report notice are styled from the first
+  render, before any dialog has opened. Before, they were unstyled until the
+  dialog or the screenshot editor had mounted once.
+
 ## v0.11.1
 
 - npm: the screenshot menu is drawn in a portal on `document.body`, at a fixed
