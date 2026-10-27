@@ -39,9 +39,15 @@ export type BugReportDialogProps = {
   onRetake?: (mode: RetakeMode, draft: Draft) => void;
   /** The draft to start from, in place of the saved one. */
   initialDraft?: Draft;
+  /** Called with the number once the server has filed the report. */
+  onSent?: (result: { number: number }) => void;
+  /** After a send: "dialog" shows the sent view here (default); "notice" closes the dialog at once. */
+  confirmation?: BugReportConfirmation;
 };
 
 export type RetakeMode = "delay" | "key";
+
+export type BugReportConfirmation = "dialog" | "notice";
 
 type Phase =
   | { name: "editing" }
@@ -99,6 +105,8 @@ export function BugReportDialog(props: BugReportDialogProps) {
     screenshotModes = true,
     onRetake,
     initialDraft,
+    onSent,
+    confirmation = "dialog",
   } = props;
   const labels = mergeLabels(labelOverrides);
   useBugkitStyles(nonce);
@@ -314,6 +322,11 @@ export function BugReportDialog(props: BugReportDialogProps) {
       const result: BugReportResult = await submit(buildBugReportForm(payload));
       clearDraft();
       setDraftSaved(false);
+      onSent?.({ number: result.number });
+      if (confirmation === "notice") {
+        onClose();
+        return;
+      }
       setPhase({ name: "sent", number: result.number });
     } catch (error) {
       // WHY: keep the server's sentence too; "not configured" and "try again" need different actions.

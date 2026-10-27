@@ -272,6 +272,132 @@ describe("BugReportButton", () => {
     await waitFor(() => expect(launcher).toHaveFocus());
   });
 
+  describe("a sent report", () => {
+    const noticeText = "Report sent. Its number is #141.";
+
+    beforeEach(() => {
+      toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function sendReport(user: ReturnType<typeof userEvent.setup>) {
+      await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+      await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Summary");
+      await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));
+    }
+
+    it("closes the dialog, returns focus to the launcher, and shows the notice with the number", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      const launcher = screen.getByRole("button", { name: defaultLabels.buttonLabel });
+
+      await sendReport(user);
+
+      expect(await screen.findByText(noticeText)).toBeInTheDocument();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.getByRole("status")).toHaveTextContent(noticeText);
+      await waitFor(() => expect(launcher).toHaveFocus());
+    });
+
+    it("leaves after about five seconds, not before", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderButton();
+
+      await sendReport(user);
+      expect(await screen.findByText(noticeText)).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(4_000));
+      expect(screen.getByText(noticeText)).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(2_000));
+      expect(screen.queryByText(noticeText)).toBeNull();
+    });
+
+    it("stays while the pointer is over it", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderButton();
+
+      await sendReport(user);
+      const notice = await screen.findByText(noticeText);
+
+      await user.hover(notice);
+      act(() => vi.advanceTimersByTime(10_000));
+      expect(screen.getByText(noticeText)).toBeInTheDocument();
+
+      await user.unhover(notice);
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(screen.queryByText(noticeText)).toBeNull();
+    });
+
+    it("drops the notice at once with reduced motion", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const original = window.matchMedia;
+      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("reduce"),
+      })) as unknown as typeof window.matchMedia;
+
+      try {
+        renderButton();
+        await sendReport(user);
+        expect(await screen.findByText(noticeText)).toBeInTheDocument();
+
+        act(() => vi.advanceTimersByTime(5_100));
+        expect(screen.queryByText(noticeText)).toBeNull();
+      } finally {
+        window.matchMedia = original;
+      }
+    });
+
+    it("hands the number to onSent and shows no notice of its own", async () => {
+      const user = userEvent.setup();
+      const onSent = vi.fn();
+      const submit = vi
+        .fn()
+        .mockResolvedValue({ id: "0190d1c2-0000-7000-8000-000000000141", number: 141 });
+      render(
+        <BugReportButton
+          submit={submit}
+          getContext={getContext}
+          diagnostics={() => []}
+          onSent={onSent}
+        />,
+      );
+
+      await sendReport(user);
+
+      await waitFor(() => expect(onSent).toHaveBeenCalledWith({ number: 141 }));
+      expect(screen.queryByText(noticeText)).toBeNull();
+    });
+
+    it("keeps the sent view behind confirmation=\"dialog\"", async () => {
+      const user = userEvent.setup();
+      const submit = vi
+        .fn()
+        .mockResolvedValue({ id: "0190d1c2-0000-7000-8000-000000000141", number: 141 });
+      render(
+        <BugReportButton
+          submit={submit}
+          getContext={getContext}
+          diagnostics={() => []}
+          confirmation="dialog"
+        />,
+      );
+
+      await sendReport(user);
+
+      expect(await screen.findByText(defaultLabels.successTitle)).toBeInTheDocument();
+      expect(screen.getByText("The report number is #141.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: defaultLabels.close })).toBeInTheDocument();
+      expect(screen.queryByText(noticeText)).toBeNull();
+    });
+  });
+
   describe("screenshot retakes", () => {
     beforeEach(() => {
       window.sessionStorage.clear();

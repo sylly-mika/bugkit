@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { BugReportDialog, type RetakeMode } from "./BugReportDialog.js";
+import { BugReportDialog, type BugReportConfirmation, type RetakeMode } from "./BugReportDialog.js";
 import { capturePage, type CaptureResult } from "./capture.js";
 import { type Draft } from "./draft.js";
 import {
@@ -8,12 +8,14 @@ import {
   type BugReportEnvironment,
   type BugReportSubmit,
 } from "./payload.js";
-import { mergeLabels, type BugReportLabelOverrides, type ResolvedBugReportLabels } from "./labels.js";
+import { formatFiled, mergeLabels, type BugReportLabelOverrides, type ResolvedBugReportLabels } from "./labels.js";
 import { partProps, type BugReportClassNames } from "./theme.js";
 
 const SCREENSHOT_DELAY_SECONDS = 3;
 const SCREENSHOT_KEY = "s";
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
+const NOTICE_MS = 5_000;
+const NOTICE_FADE_MS = 300;
 
 export type BugReportButtonProps = {
   submit: BugReportSubmit;
@@ -44,6 +46,10 @@ export type BugReportButtonProps = {
   technicalDetails?: boolean;
   /** Shows the dialog's screenshot options: retake after a countdown or on a key press, or send without a screenshot (default true). */
   screenshotModes?: boolean;
+  /** Called with the number after a report is sent; with it set, bugkit shows no notice of its own. */
+  onSent?: (result: { number: number }) => void;
+  /** After a send: "notice" (default) closes the dialog and shows a notice for a few seconds; "dialog" keeps the sent view in the dialog. */
+  confirmation?: BugReportConfirmation;
 };
 
 type Session = {
@@ -76,9 +82,12 @@ export function BugReportButton(props: BugReportButtonProps) {
     nonce,
     technicalDetails,
     screenshotModes,
+    onSent,
+    confirmation = "notice",
   } = props;
   const labels: ResolvedBugReportLabels = mergeLabels(props.labels);
   const [session, setSession] = useState<Session | null>(null);
+  const [notice, setNotice] = useState<{ number: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   // The guard the state cannot be: two presses in one tick both read the
@@ -111,6 +120,11 @@ export function BugReportButton(props: BugReportButtonProps) {
   function close() {
     setSession(null);
     onOpenChange?.(false);
+  }
+
+  function sent(result: { number: number }) {
+    if (onSent) onSent(result);
+    else if (confirmation === "notice") setNotice(result);
   }
 
   // WHY: the ref stays set through the wait, so the launcher cannot start a second capture while the dialog is away.
@@ -242,8 +256,76 @@ export function BugReportButton(props: BugReportButtonProps) {
           screenshotModes={screenshotModes}
           onRetake={retake}
           initialDraft={session.draft}
+          onSent={sent}
+          confirmation={confirmation}
         />
       ) : null}
+
+      <div {...partProps(classNames, "notice-region")}>
+        {notice ? (
+          <SentNotice
+            key={notice.number}
+            text={formatFiled(labels.sentNotice, notice.number)}
+            closeLabel={labels.close}
+            classNames={classNames}
+            onDone={() => setNotice(null)}
+          />
+        ) : null}
+      </div>
     </>
+  );
+}
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+type SentNoticeProps = {
+  text: string;
+  closeLabel: string;
+  classNames?: BugReportClassNames;
+  onDone: () => void;
+};
+
+// WHY: the notice stays while the pointer is over it or it has focus, so a reporter can read or reach its close button.
+function SentNotice({ text, closeLabel, classNames, onDone }: SentNoticeProps) {
+  const [fading, setFading] = useState(false);
+  const [held, setHeld] = useState(false);
+
+  useEffect(() => {
+    if (held) return;
+    const reduced = prefersReducedMotion();
+    // WHY: both timers are set together; a fade timer chained off the fade state would wait for a second render, which a fake clock does not run.
+    const fade = reduced ? undefined : window.setTimeout(() => setFading(true), NOTICE_MS);
+    const done = window.setTimeout(onDone, reduced ? NOTICE_MS : NOTICE_MS + NOTICE_FADE_MS);
+    return () => {
+      window.clearTimeout(fade);
+      window.clearTimeout(done);
+    };
+  }, [held]);
+
+  return (
+    <div
+      role="status"
+      {...partProps(classNames, "notice")}
+      data-leaving={fading ? "" : undefined}
+      onPointerEnter={() => {
+        setFading(false);
+        setHeld(true);
+      }}
+      onPointerLeave={() => setHeld(false)}
+      onFocus={() => {
+        setFading(false);
+        setHeld(true);
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHeld(false);
+      }}
+    >
+      <p {...partProps(classNames, "notice-text")}>{text}</p>
+      <button type="button" {...partProps(classNames, "notice-close")} onClick={onDone}>
+        {closeLabel}
+      </button>
+    </div>
   );
 }

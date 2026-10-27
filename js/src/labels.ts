@@ -91,6 +91,8 @@ export type BugReportLabels = {
   close: string;
   successTitle: string;
   filed: string;
+  // WHY: optional so a v0.9.0 label literal still compiles; mergeLabels fills it from defaultLabels.
+  sentNotice?: string;
   failureTitle: string;
   copyToClipboard: string;
   copied: string;
@@ -204,6 +206,7 @@ export const defaultLabels: ResolvedBugReportLabels = {
   close: "Close",
   successTitle: "Thank you. Your report was sent.",
   filed: "The report number is #{number}.",
+  sentNotice: "Report sent. Its number is #{number}.",
   failureTitle: "The report could not be sent.",
   copyToClipboard: "Copy the report",
   copied: "Copied",
