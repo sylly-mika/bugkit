@@ -39,9 +39,11 @@ describe("package entry", () => {
 
     render(<kit.BugReportButton {...props} />);
 
-    expect(screen.getByRole("button", { name: "Report" })).toBeInTheDocument();
+    const launcherName = `Report, ${kit.defaultLabels.buttonMenuHint}`;
+    expect(screen.getByRole("button", { name: launcherName })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Report" }));
+    await user.click(screen.getByRole("button", { name: launcherName }));
+    await user.click(await screen.findByRole("menuitem", { name: kit.defaultLabels.screenshotNow }));
     await user.type(await screen.findByLabelText(kit.defaultLabels.summaryLabel), "Save");
     await user.type(await screen.findByLabelText(kit.defaultLabels.bug.descriptionLabel), "Save fails");
     await user.click(screen.getByLabelText(kit.defaultLabels.bug.impactBlocks));
