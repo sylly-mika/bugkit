@@ -302,7 +302,9 @@ type SentNoticeProps = {
 // WHY: the notice stays while the pointer is over it or it has focus, so a reporter can read or reach its close button.
 function SentNotice({ text, closeLabel, classNames, onDone }: SentNoticeProps) {
   const [fading, setFading] = useState(false);
-  const [held, setHeld] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const held = hovered || focused;
 
   useEffect(() => {
     if (held) return;
@@ -322,15 +324,15 @@ function SentNotice({ text, closeLabel, classNames, onDone }: SentNoticeProps) {
       data-leaving={fading ? "" : undefined}
       onPointerEnter={() => {
         setFading(false);
-        setHeld(true);
+        setHovered(true);
       }}
-      onPointerLeave={() => setHeld(false)}
+      onPointerLeave={() => setHovered(false)}
       onFocus={() => {
         setFading(false);
-        setHeld(true);
+        setFocused(true);
       }}
       onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHeld(false);
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false);
       }}
     >
       <p {...partProps(classNames, "notice-text")}>{text}</p>

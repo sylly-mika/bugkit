@@ -355,6 +355,26 @@ describe("BugReportButton", () => {
       expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
     });
 
+    it("stays while it has focus, even after the pointer has left", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderButton();
+
+      await sendReport(user);
+      const notice = await screen.findByText(noticeText, { selector: noticeSelector });
+      const close = screen.getByRole("button", { name: defaultLabels.close });
+
+      act(() => close.focus());
+      await user.hover(notice);
+      await user.unhover(notice);
+      act(() => vi.advanceTimersByTime(10_000));
+      expect(screen.getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+
+      act(() => close.blur());
+      act(() => vi.advanceTimersByTime(6_000));
+      expect(screen.queryByText(noticeText, { selector: noticeSelector })).toBeNull();
+    });
+
     it("drops the notice at once with reduced motion", async () => {
       vi.useFakeTimers({ shouldAdvanceTime: true });
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
