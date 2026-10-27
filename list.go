@@ -46,7 +46,7 @@ func ListHandler(cfg ListConfig) http.Handler {
 			if errors.As(err, &se) {
 				log.Error("bugkit: listing failed", "error", se.Error(), "status", se.Status)
 				switch se.Status {
-				case http.StatusUnauthorized, http.StatusForbidden, http.StatusConflict:
+				case http.StatusUnauthorized, http.StatusForbidden:
 					writeProblem(w, r, log, http.StatusServiceUnavailable, "Bug reporting is not configured on this server.")
 					return
 				}
