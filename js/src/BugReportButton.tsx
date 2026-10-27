@@ -27,6 +27,8 @@ const NOTICE_FADE_MS = 300;
 const MENU_GAP = 4;
 const MENU_MARGIN = 8;
 const MENU_Z_INDEX = 60;
+// WHY: a host's position: relative on the region's classNames part would otherwise take it out of the viewport's corner.
+const NOTICE_REGION_STYLE: CSSProperties = { position: "fixed" };
 // WHY: the live region must exist before any send and hold the sentence once, so the visible notice is not drawn twice.
 const VISUALLY_HIDDEN: CSSProperties = {
   position: "absolute",
@@ -132,6 +134,11 @@ export function BugReportButton(props: BugReportButtonProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [notice, setNotice] = useState<{ id: number; number: number } | null>(null);
   const noticeIds = useRef(0);
+  // WHY: the region is portalled, so it waits for the mount; a server render has no body to portal into, and its live region is in place before any notice.
+  const [noticeMounted, setNoticeMounted] = useState(false);
+  useEffect(() => {
+    setNoticeMounted(true);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   // The guard the state cannot be: two presses in one tick both read the
@@ -425,20 +432,25 @@ export function BugReportButton(props: BugReportButtonProps) {
         />
       ) : null}
 
-      <div {...partProps(classNames, "notice-region")}>
-        <div role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN}>
-          {notice ? formatFiled(labels.sentNotice, notice.number) : null}
-        </div>
-        {notice ? (
-          <SentNotice
-            key={notice.id}
-            text={formatFiled(labels.sentNotice, notice.number)}
-            closeLabel={labels.close}
-            classNames={classNames}
-            onDone={() => setNotice(null)}
-          />
-        ) : null}
-      </div>
+      {noticeMounted && typeof document !== "undefined"
+        ? createPortal(
+            <div {...partProps(classNames, "notice-region")} style={NOTICE_REGION_STYLE}>
+              <div role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN}>
+                {notice ? formatFiled(labels.sentNotice, notice.number) : null}
+              </div>
+              {notice ? (
+                <SentNotice
+                  key={notice.id}
+                  text={formatFiled(labels.sentNotice, notice.number)}
+                  closeLabel={labels.close}
+                  classNames={classNames}
+                  onDone={() => setNotice(null)}
+                />
+              ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
 }

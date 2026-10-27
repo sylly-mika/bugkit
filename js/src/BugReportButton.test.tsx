@@ -346,6 +346,29 @@ describe("BugReportButton", () => {
     await waitFor(() => expect(launcher).toHaveFocus());
   });
 
+  describe("the notice region's place", () => {
+    it("is not in the launcher's row before any dialog has opened", () => {
+      render(
+        <div style={{ display: "flex" }}>
+          <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} />
+        </div>,
+      );
+      const launcher = screen.getByRole("button", { name: launcherName });
+      const bugkitInRow = launcher.parentElement!.querySelectorAll("[data-bugkit]");
+
+      expect(bugkitInRow).toHaveLength(1);
+      expect(bugkitInRow[0]).toBe(launcher);
+    });
+
+    it("floats in the body at a fixed position", () => {
+      renderButton();
+
+      const region = document.querySelector<HTMLElement>('[data-bugkit="notice-region"]');
+      expect(region?.parentElement).toBe(document.body);
+      expect(region?.style.position).toBe("fixed");
+    });
+  });
+
   describe("a sent report", () => {
     const noticeText = "Report sent. Its number is #141.";
     const noticeSelector = '[data-bugkit="notice-text"]';
@@ -392,6 +415,19 @@ describe("BugReportButton", () => {
         element.textContent?.includes(noticeText),
       );
       expect(live).toHaveLength(1);
+    });
+
+    it("puts the notice in the region, which keeps its live-region attributes", async () => {
+      const user = userEvent.setup();
+      renderButton();
+
+      await sendReport(user);
+      await screen.findByText(noticeText, { selector: noticeSelector });
+
+      const region = document.querySelector<HTMLElement>('[data-bugkit="notice-region"]')!;
+      expect(within(region).getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+      expect(within(region).getByRole("status")).toHaveAttribute("aria-live", "polite");
+      expect(within(region).getByRole("status")).toHaveAttribute("aria-atomic", "true");
     });
 
     it("leaves after about five seconds, not before", async () => {
