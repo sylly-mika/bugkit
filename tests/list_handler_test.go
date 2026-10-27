@@ -105,7 +105,6 @@ func TestListHandlerRefuses(t *testing.T) {
 	}
 }
 
-// deadlineLister records whether the context it is given has a deadline and how far away it is.
 type deadlineLister struct {
 	bounded bool
 	left    time.Duration
