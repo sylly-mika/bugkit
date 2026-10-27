@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.11.1
+
+- npm: the screenshot menu is drawn in a portal on `document.body`, at a fixed
+  position, so a host's flex row or `position: relative` no longer moves the
+  report button or scrolls the page. The menu is placed before its first item
+  takes focus, and it is cleared on close, so a reopened menu is placed from
+  the button's place at that moment.
+- Nothing is removed from the API.
+
 ## v0.11.0
 
 - npm: pressing the report button opens a dropdown of the ways to take the
