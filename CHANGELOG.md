@@ -24,7 +24,10 @@
 - go: the intake parser accepts an empty description when the summary is not
   blank. With both blank it refuses with
   `A summary or a description is required.`
-- Nothing is removed. The sent view is kept behind confirmation="dialog".
+- Nothing is removed from the API. The summary-only message (`summaryRequired`)
+  and its element `#bug-report-summary-error` are no longer shown, since a
+  summary alone is never required; a host's text for it is unused. The label
+  name stays. The sent view is kept behind confirmation="dialog".
 
 ## v0.9.0
 
