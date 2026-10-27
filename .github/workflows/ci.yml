@@ -37,3 +37,30 @@ jobs:
       - run: npm run test
       - run: npm run build
       - run: npm run check:pack
+
+  example-next:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        next: ['15', '16']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            js/package-lock.json
+            examples/next/package-lock.json
+      - working-directory: js
+        run: npm ci --no-audit --no-fund && npm run build && npm run pack
+      - working-directory: examples/next
+        run: npm ci --no-audit --no-fund
+      # WHY: 16 is the major pinned in examples/next/package.json, so only the other major is installed.
+      - working-directory: examples/next
+        if: matrix.next != '16'
+        run: npm install --no-save --no-audit --no-fund next@${{ matrix.next }}
+      - working-directory: examples/next
+        run: npm run build

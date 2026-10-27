@@ -1,0 +1,22 @@
+{
+  "name": "bugkit-example-next",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@sylly-mika/bugkit": "file:../../js/sylly-mika-bugkit-0.11.2.tgz",
+    "@types/node": "26.6.5",
+    "next": "16.4.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}
