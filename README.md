@@ -261,18 +261,30 @@ from v0.9.0 or earlier still works: a missing key takes the default.
 />
 ```
 
-**Screenshot options.** Opening the dialog still captures the page at once.
-The dialog then offers to retake the screenshot after a 3-second countdown,
-or on the S key once the page is arranged (S is ignored while typing in a
-field; Escape or Cancel screenshot cancels a pending retake), or to send
-without a screenshot. The hint bar is left out of the screenshot, and an
-inner element that is scrolled is captured scrolled. Text placed directly
-inside a scrolled element (a bare `<pre>` log, a text-only box, or a textarea)
-is captured from its top, while a scrolled element whose content is elements
-shows as scrolled. `screenshotModes={false}` hides the options. The texts are the label keys `screenshotModes`,
-`retakeDelayed`, `retakeOnKey`, `removeScreenshot`, `screenshotRemoved`,
-`captureCountdown`, `captureKeyHint` and `captureCancel`; the parts are
-`screenshot-modes`, `screenshot-mode`, `capture-hint` and `capture-cancel`.
+**The screenshot dropdown.** Pressing the report button opens a menu of the
+ways to take the screenshot; the screenshot is not taken until one is chosen:
+
+- **Screenshot now** takes the screenshot at once, then opens the dialog.
+- **Screenshot in 3 seconds** counts down, then takes the screenshot.
+- **Screenshot on key press** takes the screenshot when S is pressed once the
+  page is arranged (S is ignored while typing in a field).
+- **Send without screenshot** opens the dialog with no screenshot.
+
+Escape, Tab or a click outside closes the menu; Arrow keys, Home and End move
+between its items. Escape or Cancel screenshot stops a countdown or a key-press
+wait. The menu and the hint bar are left out of the screenshot, and an inner
+element that is scrolled is captured scrolled. Text placed directly inside a
+scrolled element (a bare `<pre>` log, a text-only box, or a textarea) is
+captured from its top, while a scrolled element whose content is elements
+shows as scrolled. The dialog shows the screenshot and its markup tools only.
+
+`screenshotModes={false}` removes the menu: the button takes the screenshot at
+once and opens the dialog. The item and menu texts are the label keys
+`screenshotNow`, `screenshotInThreeSeconds`, `screenshotOnKeyPress`,
+`sendWithoutScreenshot` and `buttonMenuHint`; the countdown and hint texts are
+`captureCountdown`, `captureKeyHint` and `captureCancel`. The parts are
+`screenshot-modes` (the menu), `screenshot-mode` (each item), `capture-hint`
+and `capture-cancel`.
 
 ## Style the dialog
 
@@ -496,7 +508,7 @@ output shows it as `<redacted>`. The client never follows a redirect.
 | `classNames` | `BugReportClassNames` | none | Classes per part from `BUG_REPORT_PARTS`. |
 | `nonce` | `string` | none | CSP nonce for bugkit's `<style>` element. |
 | `technicalDetails` | `boolean` | `true` | Shows the Technical details disclosure; the details are sent either way. |
-| `screenshotModes` | `boolean` | `true` | Shows the dialog's screenshot options: retake after a 3-second countdown, retake on the S key, or send without a screenshot. |
+| `screenshotModes` | `boolean` | `true` | Pressing the button opens a menu: screenshot now, in 3 seconds, on the S key, or send without a screenshot. `false` takes the screenshot at once, with no menu. |
 | `onSent` | `(result: { number: number }) => void` | none | Called after a send with the filed number. With it set, bugkit shows no notice, so the host can show its own. |
 | `confirmation` | `"notice" \| "dialog"` | `"notice"` | After a send, `"notice"` closes the dialog and shows a notice for about 5 seconds; `"dialog"` keeps the v0.9.0 sent view in the dialog. |
 

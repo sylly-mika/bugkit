@@ -100,6 +100,14 @@ test("merges an app's kind labels over the defaults key by key", () => {
   expect(merged.back).toBe("Back");
 });
 
+test("the screenshot menu's English defaults read as they do", () => {
+  expect(defaultLabels.screenshotNow).toBe("Screenshot now");
+  expect(defaultLabels.screenshotInThreeSeconds).toBe("Screenshot in 3 seconds");
+  expect(defaultLabels.screenshotOnKeyPress).toBe("Screenshot on key press");
+  expect(defaultLabels.sendWithoutScreenshot).toBe("Send without screenshot");
+  expect(defaultLabels.buttonMenuHint).toBe("choose how to take the screenshot");
+});
+
 test("puts the request number into the filed line", () => {
   expect(formatFiled(defaultLabels.filed, 42)).toBe("The report number is #42.");
   expect(formatFiled("{number} and {number}", 7)).toBe("7 and 7");

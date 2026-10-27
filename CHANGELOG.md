@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.11.0
+
+- npm: pressing the report button opens a dropdown of the ways to take the
+  screenshot: "Screenshot now", "Screenshot in 3 seconds", "Screenshot on key
+  press" and "Send without screenshot". The screenshot is taken when an item is
+  chosen, not when the button is pressed. The Arrow, Home and End keys move
+  between its items; Escape, Tab or a click outside closes it. Its items use
+  the new labels `screenshotNow`, `screenshotInThreeSeconds`,
+  `screenshotOnKeyPress` and `sendWithoutScreenshot`; the button's name gains
+  `buttonMenuHint`. A host's v0.10.0 label set still works: the missing strings
+  come from the defaults.
+- npm: the dialog no longer shows screenshot options. It shows the screenshot,
+  if there is one, and its markup tools. The labels `screenshotModes`
+  ("Screenshot options"), `retakeDelayed` ("Retake in 3 seconds"),
+  `retakeOnKey` ("Retake on key press") and `removeScreenshot` are no longer
+  shown; a host's text for them is unused. The label names stay.
+- Nothing is removed from the API. By default, the button now opens the menu
+  and takes no screenshot until an item is chosen. `screenshotModes={false}`
+  keeps v0.10.0's behaviour: the button takes the screenshot at once and opens
+  the dialog.
+
 ## v0.10.0
 
 - npm: a report with a summary needs no description. "What happened?" is

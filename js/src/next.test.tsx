@@ -14,7 +14,8 @@ function answer(status: number, body: unknown): Response {
 }
 
 async function fileAReport(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+  await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+  await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow }));
   await user.type(await screen.findByLabelText(defaultLabels.summaryLabel), "Summary");
   await user.type(await screen.findByLabelText(defaultLabels.bug.descriptionLabel), "Broken save");
   await user.click(screen.getByRole("button", { name: defaultLabels.bug.send }));

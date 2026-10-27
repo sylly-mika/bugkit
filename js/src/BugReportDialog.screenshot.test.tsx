@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportDialog, type BugReportDialogProps } from "./BugReportDialog.js";
@@ -170,58 +170,21 @@ describe("BugReportDialog and the screenshot it is handed", () => {
     expect(await screen.findByRole("button", { name: "copyToClipboard" })).toBeInTheDocument();
   });
 
-  it.each([
-    {
-      host: "retakes and can be kept",
-      extra: { onRetake: vi.fn() },
-      buttons: ["retakeDelayed", "retakeOnKey", "removeScreenshot"],
-    },
-    { host: "does not retake", extra: {}, buttons: ["removeScreenshot"] },
-    {
-      host: "turns the options off",
-      extra: { onRetake: vi.fn(), screenshotModes: false },
-      buttons: null,
-    },
-  ])("shows the screenshot options a host allows: $host", ({ extra, buttons }) => {
-    renderDialog(undefined, extra);
+  it("shows no screenshot options, only the picture it is handed", () => {
+    renderDialog();
 
-    const group = screen.queryByRole("group", { name: "screenshotModes" });
-    if (buttons === null) {
-      expect(group).not.toBeInTheDocument();
-      return;
-    }
-    expect(
-      within(group!)
-        .getAllByRole("button")
-        .map((button) => button.textContent),
-    ).toEqual(buttons);
+    expect(screen.queryByRole("group", { name: "screenshotModes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "retakeDelayed" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "retakeOnKey" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "removeScreenshot" })).not.toBeInTheDocument();
   });
 
-  it("starts a retake with the words the reporter has typed", async () => {
+  it("shows that no screenshot was taken when the capture was skipped, and sends without one", async () => {
     const user = userEvent.setup();
-    const onRetake = vi.fn();
-    renderDialog(undefined, { onRetake });
-
-    await user.type(screen.getByLabelText("summaryLabel"), "Summary");
-    await user.click(screen.getByRole("button", { name: "retakeOnKey" }));
-
-    expect(onRetake).toHaveBeenCalledWith("key", {
-      kind: "bug",
-      summary: "Summary",
-      description: "",
-      impact: "workaround",
-    });
-  });
-
-  it("sends without a screenshot once the reporter removes it", async () => {
-    const user = userEvent.setup();
-    const { submit } = renderDialog();
-
-    await user.click(screen.getByRole("button", { name: "removeScreenshot" }));
+    const { submit } = renderDialog(undefined, { capture: { ok: false, reason: "skipped" } });
 
     expect(screen.getByText("screenshotRemoved")).toBeInTheDocument();
     expect(screen.queryByText("captureFailed")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "removeScreenshot" })).not.toBeInTheDocument();
 
     await fillAndSend(user, "Sent without the picture");
 

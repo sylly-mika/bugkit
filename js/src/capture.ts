@@ -5,7 +5,7 @@ export const CAPTURE_NODE_CAP = 3_000;
 
 export type CaptureResult =
   | { ok: true; dataUrl: string }
-  | { ok: false; reason: "too-many-nodes" | "timed-out" | "failed" };
+  | { ok: false; reason: "too-many-nodes" | "timed-out" | "failed" | "skipped" };
 
 export type CaptureOptions = {
   root?: HTMLElement;

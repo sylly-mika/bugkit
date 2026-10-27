@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { BugReportDialog, type BugReportConfirmation, type RetakeMode } from "./BugReportDialog.js";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
+import { BugReportDialog, type BugReportConfirmation } from "./BugReportDialog.js";
 import { capturePage, type CaptureResult } from "./capture.js";
-import { type Draft } from "./draft.js";
 import {
   readEnvironment,
   type BugReportContext,
@@ -55,7 +62,7 @@ export type BugReportButtonProps = {
   nonce?: string;
   /** Shows the Technical details disclosure in the dialog (default true); the details are sent either way. */
   technicalDetails?: boolean;
-  /** Shows the dialog's screenshot options: retake after a countdown or on a key press, or send without a screenshot (default true). */
+  /** Pressing the button opens a menu of the ways to take the screenshot: now, after 3 seconds, on a key press, or none (default true). false takes the screenshot at once. */
   screenshotModes?: boolean;
   /** Called with the number after a report is sent; with it set, bugkit shows no notice of its own. */
   onSent?: (result: { number: number }) => void;
@@ -68,10 +75,30 @@ type Session = {
   context: BugReportContext;
   environment: BugReportEnvironment;
   diagnostics: unknown;
-  draft?: Draft;
 };
 
-type Pending = { mode: "delay"; secondsLeft: number } | { mode: "key" } | { mode: "capturing" };
+type Pending = { mode: "delay"; secondsLeft: number } | { mode: "key" };
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+type ScreenshotChoice = "now" | "delay" | "key" | "send";
+
+const MENU_CHOICES: ScreenshotChoice[] = ["now", "delay", "key", "send"];
+
+function choiceLabel(labels: ResolvedBugReportLabels, choice: ScreenshotChoice): string {
+  switch (choice) {
+    case "now":
+      return labels.screenshotNow;
+    case "delay":
+      return labels.screenshotInThreeSeconds;
+    case "key":
+      return labels.screenshotOnKeyPress;
+    case "send":
+      return labels.sendWithoutScreenshot;
+  }
+}
 
 function isScreenshotKey(event: KeyboardEvent): boolean {
   if (event.key.toLowerCase() !== SCREENSHOT_KEY || event.ctrlKey || event.metaKey || event.altKey) {
@@ -107,6 +134,24 @@ export function BugReportButton(props: BugReportButtonProps) {
   // render's `busy` as false, and each starts a full-page clone.
   const capturing = useRef(false);
   const launcher = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPlace, setMenuPlace] = useState<{ top: number; left: number } | null>(null);
+  const menuMode = screenshotModes !== false;
+
+  function sessionFor(capture: CaptureResult): Session {
+    return {
+      capture,
+      context: getContext(),
+      environment: readEnvironment(),
+      diagnostics: diagnostics ? diagnostics() : [],
+    };
+  }
+
+  function showDialog(next: Session) {
+    setSession(next);
+    onOpenChange?.(true);
+  }
 
   async function open() {
     if (capturing.current) return;
@@ -117,17 +162,60 @@ export function BugReportButton(props: BugReportButtonProps) {
       // our own UI is in the frame. Everything else is read at the same instant
       // so the context and the image describe the same moment.
       const capture = await capturePage({ allowedImageOrigins, captureFonts });
-      setSession({
-        capture,
-        context: getContext(),
-        environment: readEnvironment(),
-        diagnostics: diagnostics ? diagnostics() : [],
-      });
-      onOpenChange?.(true);
+      showDialog(sessionFor(capture));
     } finally {
       capturing.current = false;
       setBusy(false);
     }
+  }
+
+  function press() {
+    if (capturing.current) return;
+    if (menuMode) setMenuOpen(!menuOpen);
+    else void open();
+  }
+
+  function closeMenu() {
+    setMenuOpen(false);
+    launcher.current?.focus();
+  }
+
+  function choose(choice: ScreenshotChoice) {
+    closeMenu();
+    if (choice === "now") requestAnimationFrame(() => void open());
+    else if (choice === "send") showDialog(sessionFor({ ok: false, reason: "skipped" }));
+    else {
+      // WHY: the ref stays set through the wait, so the launcher cannot start a second capture while the dialog is away.
+      capturing.current = true;
+      setPending(choice === "delay" ? { mode: "delay", secondsLeft: SCREENSHOT_DELAY_SECONDS } : { mode: "key" });
+    }
+  }
+
+  function onMenuKey(event: ReactKeyboardEvent<HTMLDivElement>) {
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const last = items.length - 1;
+    switch (event.key) {
+      case "ArrowDown":
+        items[at >= last ? 0 : at + 1].focus();
+        break;
+      case "ArrowUp":
+        items[at <= 0 ? last : at - 1].focus();
+        break;
+      case "Home":
+        items[0].focus();
+        break;
+      case "End":
+        items[last].focus();
+        break;
+      case "Escape":
+      case "Tab":
+        closeMenu();
+        break;
+      default:
+        return;
+    }
+    event.preventDefault();
   }
 
   function close() {
@@ -140,46 +228,34 @@ export function BugReportButton(props: BugReportButtonProps) {
     else if (confirmation === "notice") setNotice({ id: ++noticeIds.current, number: result.number });
   }
 
-  // WHY: the ref stays set through the wait, so the launcher cannot start a second capture while the dialog is away.
-  function retake(mode: RetakeMode, draft: Draft) {
-    capturing.current = true;
-    setSession((current) => (current ? { ...current, draft } : current));
-    setPending(mode === "delay" ? { mode: "delay", secondsLeft: SCREENSHOT_DELAY_SECONDS } : { mode: "key" });
-  }
-
-  function cancelRetake() {
+  function cancelWait() {
     capturing.current = false;
     setPending(null);
+    launcher.current?.focus();
   }
 
-  async function captureRetake() {
-    setPending({ mode: "capturing" });
+  async function captureAfterWait() {
+    setPending(null);
+    await nextFrame();
     try {
-      const capture = await capturePage({ allowedImageOrigins, captureFonts });
-      const next = {
-        capture,
-        context: getContext(),
-        environment: readEnvironment(),
-        diagnostics: diagnostics ? diagnostics() : [],
-      };
+      const next = sessionFor(await capturePage({ allowedImageOrigins, captureFonts }));
       launcher.current?.focus();
-      setSession((current) => ({ ...next, draft: current?.draft }));
+      showDialog(next);
     } finally {
       capturing.current = false;
-      setPending(null);
     }
   }
 
   useEffect(() => {
-    if (pending === null || pending.mode === "capturing") return;
+    if (pending === null) return;
     let active = true;
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" && !(pending.mode === "key" && isScreenshotKey(event))) return;
       event.stopImmediatePropagation();
       event.preventDefault();
-      if (event.key === "Escape") cancelRetake();
-      else void captureRetake();
+      if (event.key === "Escape") cancelWait();
+      else void captureAfterWait();
     };
     window.addEventListener("keydown", onKey, { capture: true });
 
@@ -190,7 +266,7 @@ export function BugReportButton(props: BugReportButtonProps) {
             if (pending.secondsLeft > 1) {
               setPending({ mode: "delay", secondsLeft: pending.secondsLeft - 1 });
             } else {
-              void captureRetake();
+              void captureAfterWait();
             }
           }, 1000)
         : undefined;
@@ -202,13 +278,32 @@ export function BugReportButton(props: BugReportButtonProps) {
     };
   }, [pending]);
 
-  const name = busy ? labels.capturePending : labels.buttonLabel;
-  const hint =
-    pending?.mode === "delay"
-      ? labels.captureCountdown(pending.secondsLeft)
-      : pending?.mode === "key"
-        ? labels.captureKeyHint
-        : labels.capturePending;
+  useLayoutEffect(() => {
+    if (!menuOpen || !menu.current || !launcher.current) return;
+    menu.current.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    const anchor = launcher.current.getBoundingClientRect();
+    const width = menu.current.offsetWidth;
+    const height = menu.current.offsetHeight;
+    setMenuPlace({
+      top: Math.max(8, Math.min(anchor.bottom + 4, window.innerHeight - height - 8)),
+      left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
+    });
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointer = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (menu.current?.contains(target) || launcher.current?.contains(target)) return;
+      closeMenu();
+    };
+    document.addEventListener("mousedown", onPointer);
+    return () => document.removeEventListener("mousedown", onPointer);
+  }, [menuOpen]);
+
+  const buttonName = menuMode ? `${labels.buttonLabel}, ${labels.buttonMenuHint}` : labels.buttonLabel;
+  const name = busy ? labels.capturePending : buttonName;
+  const hint = pending?.mode === "delay" ? labels.captureCountdown(pending.secondsLeft) : labels.captureKeyHint;
 
   return (
     <>
@@ -235,22 +330,46 @@ export function BugReportButton(props: BugReportButtonProps) {
         type="button"
         data-bugreport-launcher
         {...partProps(classNames, "launcher", className)}
-        onClick={open}
+        onClick={press}
         aria-busy={busy}
+        aria-haspopup={menuMode ? "menu" : undefined}
+        aria-expanded={menuMode ? menuOpen : undefined}
         aria-label={name}
         title={name}
       >
-        {children ?? name}
+        {children ?? (busy ? labels.capturePending : labels.buttonLabel)}
       </button>
+
+      {menuMode && menuOpen ? (
+        <div
+          ref={menu}
+          role="menu"
+          aria-label={labels.buttonLabel}
+          data-bugreport-launcher
+          {...partProps(classNames, "screenshot-modes")}
+          style={menuPlace ? { top: menuPlace.top, left: menuPlace.left } : undefined}
+          onKeyDown={onMenuKey}
+        >
+          {MENU_CHOICES.map((choice) => (
+            <button
+              key={choice}
+              type="button"
+              role="menuitem"
+              {...partProps(classNames, "screenshot-mode")}
+              onClick={() => choose(choice)}
+            >
+              {choiceLabel(labels, choice)}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {pending ? (
         <div data-bugreport-launcher {...partProps(classNames, "capture-hint")}>
           <p role="status">{hint}</p>
-          {pending.mode === "capturing" ? null : (
-            <button type="button" {...partProps(classNames, "capture-cancel")} onClick={cancelRetake}>
-              {labels.captureCancel}
-            </button>
-          )}
+          <button type="button" {...partProps(classNames, "capture-cancel")} onClick={cancelWait}>
+            {labels.captureCancel}
+          </button>
         </div>
       ) : null}
 
@@ -266,9 +385,6 @@ export function BugReportButton(props: BugReportButtonProps) {
           classNames={classNames}
           nonce={nonce}
           technicalDetails={technicalDetails}
-          screenshotModes={screenshotModes}
-          onRetake={retake}
-          initialDraft={session.draft}
           onSent={sent}
           confirmation={confirmation}
         />

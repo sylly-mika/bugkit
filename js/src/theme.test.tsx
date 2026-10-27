@@ -94,8 +94,9 @@ describe("bugkit theme", () => {
         classNames={classNames}
       />,
     );
-    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
-    await user.click(await screen.findByRole("button", { name: defaultLabels.retakeOnKey }));
+    await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+    recordNamedParts(seen);
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotOnKeyPress }));
     expect(document.querySelector('[data-bugkit="capture-hint"]')).not.toBeNull();
     recordNamedParts(seen);
 
@@ -197,7 +198,9 @@ describe("bugkit theme", () => {
     expect(launcher).toHaveClass("host", "app-launch");
     expect(launcher.dataset.bugkit).toBe("launcher");
 
-    await userEvent.setup().click(launcher);
+    const user = userEvent.setup();
+    await user.click(launcher);
+    await user.click(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow }));
     await waitFor(() =>
       expect(document.querySelector('[data-bugkit="panel"]')).toHaveClass("app-panel"),
     );
