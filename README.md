@@ -489,6 +489,7 @@ output shows it as `<redacted>`. The client never follows a redirect.
 | `labels` | `BugReportLabelOverrides` | `defaultLabels` (English) | Text overrides. |
 | `diagnostics` | `() => unknown` | none | Extra context, sent inside the `diagnostics` JSON part. |
 | `allowedImageOrigins` | `string[]` | none | Image origins, besides the page's own, the screenshot may include. |
+| `captureFonts` | `boolean` | `true` | Embeds the page's web fonts in the screenshot so its labels wrap as they do on the page; `false` skips that for a host where it is slow. A font that cannot be read leaves the browser's own face in its place. |
 | `className` | `string` | none | Class of the launcher button. |
 | `children` | `ReactNode` | the label | Launcher content. |
 | `onOpenChange` | `(open: boolean) => void` | none | Called when the dialog opens or closes. |

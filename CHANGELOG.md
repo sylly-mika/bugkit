@@ -14,6 +14,11 @@
   `BugReport` take `onSent({ number })`: when set, bugkit calls it after a send
   and shows no notice of its own. `confirmation` (`"notice"`, the default, or
   `"dialog"`) picks the confirmation; `"dialog"` keeps the v0.9.0 sent view.
+- npm: the screenshot embeds the page's web fonts, so labels wrap as they do on
+  the page. `BugReportButton` takes `captureFonts` (default `true`); `false`
+  skips the embedding for a host where it is slow.
+- npm: the screenshot keeps a border-image layer on an element, such as a
+  primary button's seal, which it used to drop.
 - go: the intake parser accepts an empty description when the summary is not
   blank. With both blank it refuses with
   `A summary or a description is required.`
