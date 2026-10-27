@@ -139,6 +139,16 @@ function borderImageURL(el: Element, pseudo: string): string | null {
   }
 }
 
+function borderImageLonghands(el: Element, pseudo: string): string {
+  const style = window.getComputedStyle(el, pseudo || null);
+  return ["slice", "width", "outset", "repeat"]
+    .map((name) => {
+      const value = style.getPropertyValue(`border-image-${name}`);
+      return value ? `border-image-${name}: ${value} !important;` : "";
+    })
+    .join(" ");
+}
+
 async function toDataUrl(url: string): Promise<string> {
   const blob = await (await fetch(url)).blob();
   return new Promise((resolve, reject) => {
@@ -165,7 +175,9 @@ function markBorderImages(
   for (const el of [root, ...Array.from(root.querySelectorAll("*"))]) {
     const layers = LAYER_PSEUDOS.flatMap((pseudo) => {
       const url = borderImageURL(el, pseudo);
-      return url && allowedOrigins.includes(new URL(url).origin) ? [{ pseudo, url }] : [];
+      return url && allowedOrigins.includes(new URL(url).origin)
+        ? [{ pseudo, url, longhands: borderImageLonghands(el, pseudo) }]
+        : [];
     });
     if (layers.length === 0) {
       continue;
@@ -173,10 +185,11 @@ function markBorderImages(
     const n = String(marked.length);
     el.setAttribute(LAYER_ATTRIBUTE, n);
     marked.push(el);
-    for (const { pseudo, url } of layers) {
+    for (const { pseudo, url, longhands } of layers) {
       pending.push(
         toDataUrl(url).then(
-          (dataUrl) => `[${LAYER_ATTRIBUTE}="${n}"]${pseudo} { border-image-source: url("${dataUrl}") !important; }`,
+          (dataUrl) =>
+            `[${LAYER_ATTRIBUTE}="${n}"]${pseudo} { border-image-source: url("${dataUrl}") !important; ${longhands} }`,
           () => "",
         ),
       );

@@ -196,6 +196,36 @@ describe("capturePage", () => {
     expect(button.getAttribute("data-bugkit-layer")).toBeNull();
   });
 
+  it("sets the seal layer's border-image slice, width, outset and repeat, not only its source", async () => {
+    const button = document.createElement("button");
+    button.className = "ink-seal";
+    document.body.append(button);
+    const layer: Record<string, string> = {
+      "border-image-source": 'url("http://localhost:3000/ink/brush-seal.webp")',
+      "border-image-slice": "10",
+      "border-image-width": "10px",
+      "border-image-outset": "0px",
+      "border-image-repeat": "stretch",
+    };
+    vi.spyOn(window, "getComputedStyle").mockImplementation(
+      (el: Element, pseudo?: string | null) =>
+        ({
+          getPropertyValue: (prop: string) => (el === button && pseudo === "::before" ? (layer[prop] ?? "") : ""),
+        }) as unknown as CSSStyleDeclaration,
+    );
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, blob: async () => new Blob(["seal"], { type: "image/webp" }) })));
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+
+    const css = String(toPngMock.mock.calls[0][1]?.fontEmbedCSS);
+    expect(css).toMatch(/border-image-source:\s*url\("data:image\/webp;base64,c2VhbA=="\)\s*!important/);
+    expect(css).toMatch(/border-image-slice:\s*10\s*!important/);
+    expect(css).toMatch(/border-image-width:\s*10px\s*!important/);
+    expect(css).toMatch(/border-image-outset:\s*0px\s*!important/);
+    expect(css).toMatch(/border-image-repeat:\s*stretch\s*!important/);
+  });
+
   // See viewportFraming in capture.ts: a viewport-sized picture of a
   // document-sized clone pulled up by the scroll offset, through margins.
   it("frames the page as the viewport the reporter was looking at", async () => {
