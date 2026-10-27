@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.11.1
+
+- npm: the screenshot menu is drawn in a portal on `document.body`, at a fixed
+  position, so a host's flex row or `position: relative` no longer moves the
+  report button or scrolls the page. The menu is placed before its first item
+  takes focus, and it is cleared on close, so a reopened menu is placed from
+  the button's place at that moment.
+- npm: Escape with the screenshot menu open closes only the menu, not the
+  host's drawer or dialog around the button; focus returns to the button.
+- npm: since v0.10.0, the sent-report notice's empty region took a place in a
+  host's flex row until the first report dialog opened, so the report button
+  moved when that dialog first opened; the region is now drawn in a portal on
+  `document.body`, at a fixed position, from the first render.
+- Nothing is removed from the API.
+
 ## v0.11.0
 
 - npm: pressing the report button opens a dropdown of the ways to take the

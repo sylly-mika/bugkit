@@ -7,6 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { BugReportDialog, type BugReportConfirmation } from "./BugReportDialog.js";
 import { capturePage, type CaptureResult } from "./capture.js";
 import {
@@ -23,6 +24,11 @@ const SCREENSHOT_KEY = "s";
 const EDITABLE_SELECTOR = 'input, textarea, select, [contenteditable]:not([contenteditable="false"])';
 const NOTICE_MS = 5_000;
 const NOTICE_FADE_MS = 300;
+const MENU_GAP = 4;
+const MENU_MARGIN = 8;
+const MENU_Z_INDEX = 60;
+// WHY: a host's position: relative on the region's classNames part would otherwise take it out of the viewport's corner.
+const NOTICE_REGION_STYLE: CSSProperties = { position: "fixed" };
 // WHY: the live region must exist before any send and hold the sentence once, so the visible notice is not drawn twice.
 const VISUALLY_HIDDEN: CSSProperties = {
   position: "absolute",
@@ -128,6 +134,11 @@ export function BugReportButton(props: BugReportButtonProps) {
   const [session, setSession] = useState<Session | null>(null);
   const [notice, setNotice] = useState<{ id: number; number: number } | null>(null);
   const noticeIds = useRef(0);
+  // WHY: the region is portalled, so it waits for the mount; a server render has no body to portal into, and its live region is in place before any notice.
+  const [noticeMounted, setNoticeMounted] = useState(false);
+  useEffect(() => {
+    setNoticeMounted(true);
+  }, []);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
   // The guard the state cannot be: two presses in one tick both read the
@@ -171,13 +182,16 @@ export function BugReportButton(props: BugReportButtonProps) {
 
   function press() {
     if (capturing.current) return;
-    if (menuMode) setMenuOpen(!menuOpen);
-    else void open();
+    if (!menuMode) void open();
+    else if (menuOpen) closeMenu();
+    else setMenuOpen(true);
   }
 
   function closeMenu() {
     setMenuOpen(false);
-    launcher.current?.focus();
+    setMenuPlace(null);
+    // WHY: a close that scrolls the launcher into view would move the page under a reporter who scrolled it away.
+    launcher.current?.focus({ preventScroll: true });
   }
 
   function choose(choice: ScreenshotChoice) {
@@ -209,6 +223,11 @@ export function BugReportButton(props: BugReportButtonProps) {
         items[last].focus();
         break;
       case "Escape":
+        // WHY: the host's own Escape handler (a drawer or dialog) listens on the document and must not close with the menu.
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu();
+        break;
       case "Tab":
         closeMenu();
         break;
@@ -278,17 +297,20 @@ export function BugReportButton(props: BugReportButtonProps) {
     };
   }, [pending]);
 
+  // The menu renders hidden until it has a place, so it is measured and placed before the first item takes focus.
   useLayoutEffect(() => {
     if (!menuOpen || !menu.current || !launcher.current) return;
-    menu.current.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
-    const anchor = launcher.current.getBoundingClientRect();
-    const width = menu.current.offsetWidth;
-    const height = menu.current.offsetHeight;
-    setMenuPlace({
-      top: Math.max(8, Math.min(anchor.bottom + 4, window.innerHeight - height - 8)),
-      left: Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8)),
-    });
-  }, [menuOpen]);
+    if (menuPlace === null) {
+      setMenuPlace(
+        placeMenu(launcher.current.getBoundingClientRect(), menu.current.getBoundingClientRect(), {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        }),
+      );
+      return;
+    }
+    menu.current.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+  }, [menuOpen, menuPlace]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -299,6 +321,17 @@ export function BugReportButton(props: BugReportButtonProps) {
     };
     document.addEventListener("mousedown", onPointer);
     return () => document.removeEventListener("mousedown", onPointer);
+  }, [menuOpen]);
+
+  // The place is in viewport coordinates, so a page that moves under an open menu closes it.
+  useEffect(() => {
+    if (!menuOpen) return;
+    window.addEventListener("resize", closeMenu);
+    window.addEventListener("scroll", closeMenu, true);
+    return () => {
+      window.removeEventListener("resize", closeMenu);
+      window.removeEventListener("scroll", closeMenu, true);
+    };
   }, [menuOpen]);
 
   const buttonName = menuMode ? `${labels.buttonLabel}, ${labels.buttonMenuHint}` : labels.buttonLabel;
@@ -340,29 +373,38 @@ export function BugReportButton(props: BugReportButtonProps) {
         {children ?? (busy ? labels.capturePending : labels.buttonLabel)}
       </button>
 
-      {menuMode && menuOpen ? (
-        <div
-          ref={menu}
-          role="menu"
-          aria-label={labels.buttonLabel}
-          data-bugreport-launcher
-          {...partProps(classNames, "screenshot-modes")}
-          style={menuPlace ? { top: menuPlace.top, left: menuPlace.left } : undefined}
-          onKeyDown={onMenuKey}
-        >
-          {MENU_CHOICES.map((choice) => (
-            <button
-              key={choice}
-              type="button"
-              role="menuitem"
-              {...partProps(classNames, "screenshot-mode")}
-              onClick={() => choose(choice)}
+      {menuMode && menuOpen && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menu}
+              role="menu"
+              aria-label={labels.buttonLabel}
+              data-bugreport-launcher
+              {...partProps(classNames, "screenshot-modes")}
+              style={{
+                position: "fixed",
+                top: menuPlace?.top ?? 0,
+                left: menuPlace?.left ?? 0,
+                zIndex: MENU_Z_INDEX,
+                visibility: menuPlace ? undefined : "hidden",
+              }}
+              onKeyDown={onMenuKey}
             >
-              {choiceLabel(labels, choice)}
-            </button>
-          ))}
-        </div>
-      ) : null}
+              {MENU_CHOICES.map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  role="menuitem"
+                  {...partProps(classNames, "screenshot-mode")}
+                  onClick={() => choose(choice)}
+                >
+                  {choiceLabel(labels, choice)}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
 
       {pending ? (
         <div data-bugreport-launcher {...partProps(classNames, "capture-hint")}>
@@ -390,22 +432,42 @@ export function BugReportButton(props: BugReportButtonProps) {
         />
       ) : null}
 
-      <div {...partProps(classNames, "notice-region")}>
-        <div role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN}>
-          {notice ? formatFiled(labels.sentNotice, notice.number) : null}
-        </div>
-        {notice ? (
-          <SentNotice
-            key={notice.id}
-            text={formatFiled(labels.sentNotice, notice.number)}
-            closeLabel={labels.close}
-            classNames={classNames}
-            onDone={() => setNotice(null)}
-          />
-        ) : null}
-      </div>
+      {noticeMounted && typeof document !== "undefined"
+        ? createPortal(
+            <div {...partProps(classNames, "notice-region")} style={NOTICE_REGION_STYLE}>
+              <div role="status" aria-live="polite" aria-atomic="true" style={VISUALLY_HIDDEN}>
+                {notice ? formatFiled(labels.sentNotice, notice.number) : null}
+              </div>
+              {notice ? (
+                <SentNotice
+                  key={notice.id}
+                  text={formatFiled(labels.sentNotice, notice.number)}
+                  closeLabel={labels.close}
+                  classNames={classNames}
+                  onDone={() => setNotice(null)}
+                />
+              ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </>
   );
+}
+
+// WHY: the menu is fixed to the viewport, so its place is in viewport coordinates; inline position wins over a host class's position: relative.
+function placeMenu(
+  anchor: Pick<DOMRect, "top" | "bottom" | "left">,
+  size: Pick<DOMRect, "width" | "height">,
+  view: { width: number; height: number },
+): { top: number; left: number } {
+  const below = anchor.bottom + MENU_GAP;
+  const fitsBelow = below + size.height + MENU_MARGIN <= view.height;
+  const wanted = fitsBelow ? below : anchor.top - MENU_GAP - size.height;
+  return {
+    top: Math.max(MENU_MARGIN, Math.min(wanted, view.height - size.height - MENU_MARGIN)),
+    left: Math.max(MENU_MARGIN, Math.min(anchor.left, view.width - size.width - MENU_MARGIN)),
+  };
 }
 
 function prefersReducedMotion(): boolean {

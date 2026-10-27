@@ -271,8 +271,9 @@ ways to take the screenshot; the screenshot is not taken until one is chosen:
 - **Send without screenshot** opens the dialog with no screenshot.
 
 Escape, Tab or a click outside closes the menu; Arrow keys, Home and End move
-between its items. Escape or Cancel screenshot stops a countdown or a key-press
-wait. The menu and the hint bar are left out of the screenshot, and an inner
+between its items. A host that closes its own layer on Escape at the `document`
+should skip events whose `defaultPrevented` is true. Escape or Cancel screenshot
+stops a countdown or a key-press wait. The menu and the hint bar are left out of the screenshot, and an inner
 element that is scrolled is captured scrolled. Text placed directly inside a
 scrolled element (a bare `<pre>` log, a text-only box, or a textarea) is
 captured from its top, while a scrolled element whose content is elements

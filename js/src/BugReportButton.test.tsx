@@ -346,6 +346,29 @@ describe("BugReportButton", () => {
     await waitFor(() => expect(launcher).toHaveFocus());
   });
 
+  describe("the notice region's place", () => {
+    it("is not in the launcher's row before any dialog has opened", () => {
+      render(
+        <div style={{ display: "flex" }}>
+          <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} />
+        </div>,
+      );
+      const launcher = screen.getByRole("button", { name: launcherName });
+      const bugkitInRow = launcher.parentElement!.querySelectorAll("[data-bugkit]");
+
+      expect(bugkitInRow).toHaveLength(1);
+      expect(bugkitInRow[0]).toBe(launcher);
+    });
+
+    it("floats in the body at a fixed position", () => {
+      renderButton();
+
+      const region = document.querySelector<HTMLElement>('[data-bugkit="notice-region"]');
+      expect(region?.parentElement).toBe(document.body);
+      expect(region?.style.position).toBe("fixed");
+    });
+  });
+
   describe("a sent report", () => {
     const noticeText = "Report sent. Its number is #141.";
     const noticeSelector = '[data-bugkit="notice-text"]';
@@ -392,6 +415,19 @@ describe("BugReportButton", () => {
         element.textContent?.includes(noticeText),
       );
       expect(live).toHaveLength(1);
+    });
+
+    it("puts the notice in the region, which keeps its live-region attributes", async () => {
+      const user = userEvent.setup();
+      renderButton();
+
+      await sendReport(user);
+      await screen.findByText(noticeText, { selector: noticeSelector });
+
+      const region = document.querySelector<HTMLElement>('[data-bugkit="notice-region"]')!;
+      expect(within(region).getByText(noticeText, { selector: noticeSelector })).toBeInTheDocument();
+      expect(within(region).getByRole("status")).toHaveAttribute("aria-live", "polite");
+      expect(within(region).getByRole("status")).toHaveAttribute("aria-atomic", "true");
     });
 
     it("leaves after about five seconds, not before", async () => {
@@ -647,6 +683,49 @@ describe("BugReportButton", () => {
       expect(toPngMock).not.toHaveBeenCalled();
     });
 
+    it("Escape on a menu item closes only the menu: the page does not see it, and focus returns to the launcher", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      const launcher = screen.getByRole("button", { name: launcherName });
+      await user.click(launcher);
+      await screen.findByRole("menu");
+      const pageKeys = vi.fn();
+      const seen: KeyboardEvent[] = [];
+      const recordKey = (event: KeyboardEvent) => seen.push(event);
+      document.addEventListener("keydown", pageKeys);
+      document.addEventListener("keydown", recordKey, { capture: true });
+
+      try {
+        await user.keyboard("{Escape}");
+
+        await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+        expect(pageKeys.mock.calls.some(([event]) => event.key === "Escape")).toBe(false);
+        expect(seen.find((event) => event.key === "Escape")?.defaultPrevented).toBe(true);
+        expect(launcher).toHaveFocus();
+      } finally {
+        document.removeEventListener("keydown", pageKeys);
+        document.removeEventListener("keydown", recordKey, { capture: true });
+      }
+    });
+
+    it("leaves ArrowDown in the open menu to the page", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      const items = within(await screen.findByRole("menu")).getAllByRole("menuitem");
+      const pageKeys = vi.fn();
+      document.addEventListener("keydown", pageKeys);
+
+      try {
+        await user.keyboard("{ArrowDown}");
+
+        expect(items[1]).toHaveFocus();
+        expect(pageKeys.mock.calls.some(([event]) => event.key === "ArrowDown")).toBe(true);
+      } finally {
+        document.removeEventListener("keydown", pageKeys);
+      }
+    });
+
     it("closes when the reporter clicks elsewhere", async () => {
       const user = userEvent.setup();
       renderButton();
@@ -882,6 +961,167 @@ describe("BugReportButton", () => {
       expect(await screen.findByRole("dialog")).toBeInTheDocument();
       expect(toPngMock).toHaveBeenCalledTimes(1);
       expect(screen.queryByRole("menu")).toBeNull();
+    });
+
+    describe("its place on the page", () => {
+      const MENU_SIZE = { width: 220, height: 180 };
+      const VIEWPORT = { width: 1280, height: 800 };
+      let launcherBox: DOMRect;
+      let rectSpy: { mockRestore: () => void } | undefined;
+
+      const rectAt = (left: number, top: number, width: number, height: number) =>
+        ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+
+      function stubLayout() {
+        rectSpy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+          if (this.getAttribute("role") === "menu") return rectAt(0, 0, MENU_SIZE.width, MENU_SIZE.height);
+          if (this.getAttribute("aria-haspopup") === "menu") return launcherBox;
+          return rectAt(0, 0, 0, 0);
+        });
+      }
+
+      beforeEach(() => {
+        Object.defineProperty(window, "innerWidth", { configurable: true, value: VIEWPORT.width });
+        Object.defineProperty(window, "innerHeight", { configurable: true, value: VIEWPORT.height });
+        launcherBox = rectAt(1200, 20, 120, 36);
+        stubLayout();
+      });
+
+      afterEach(() => {
+        rectSpy?.mockRestore();
+        vi.restoreAllMocks();
+        Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+        Object.defineProperty(window, "innerHeight", { configurable: true, value: 768 });
+      });
+
+      it("portals the menu into the body, so it is not a sibling of the launcher", async () => {
+        const user = userEvent.setup();
+        render(
+          <div style={{ display: "flex" }}>
+            <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} />
+          </div>,
+        );
+        const launcher = screen.getByRole("button", { name: launcherName });
+        const row = launcher.parentElement!;
+        const childrenBefore = row.children.length;
+
+        await user.click(launcher);
+
+        const menu = await screen.findByRole("menu");
+        expect(menu.parentElement).toBe(document.body);
+        expect(row.children).toHaveLength(childrenBefore);
+      });
+
+      it("fixes the menu below the launcher, inside the viewport", async () => {
+        const user = userEvent.setup();
+        renderButton();
+
+        await user.click(screen.getByRole("button", { name: launcherName }));
+
+        const menu = await screen.findByRole("menu");
+        const top = parseFloat(menu.style.top);
+        const left = parseFloat(menu.style.left);
+        expect(menu.style.position).toBe("fixed");
+        expect(top).toBe(launcherBox.bottom + 4);
+        expect(top).toBeGreaterThanOrEqual(0);
+        expect(top + MENU_SIZE.height).toBeLessThanOrEqual(VIEWPORT.height);
+        expect(left).toBeGreaterThanOrEqual(0);
+        expect(left + MENU_SIZE.width).toBeLessThanOrEqual(VIEWPORT.width);
+      });
+
+      it("keeps the menu fixed when the host's class sets position: relative on it", async () => {
+        const user = userEvent.setup();
+        render(
+          <BugReportButton
+            submit={vi.fn()}
+            getContext={getContext}
+            diagnostics={() => []}
+            classNames={{ "screenshot-modes": "ink-box" }}
+          />,
+        );
+
+        await user.click(screen.getByRole("button", { name: launcherName }));
+
+        const menu = await screen.findByRole("menu");
+        expect(menu).toHaveClass("ink-box");
+        expect(menu.style.position).toBe("fixed");
+      });
+
+      it("focuses the first item without scrolling the page", async () => {
+        const user = userEvent.setup();
+        const realFocus = HTMLElement.prototype.focus;
+        const focusCalls: Array<{ el: HTMLElement; options: unknown }> = [];
+        vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+          focusCalls.push({ el: this, options });
+          realFocus.call(this, options);
+        });
+        renderButton();
+
+        await user.click(screen.getByRole("button", { name: launcherName }));
+        await screen.findByRole("menu");
+
+        expect(
+          focusCalls
+            .filter((call) => call.el.getAttribute("role") === "menuitem")
+            .map((call) => [call.el.textContent, call.options]),
+        ).toEqual([[defaultLabels.screenshotNow, { preventScroll: true }]]);
+      });
+
+      it("places a reopened menu from the launcher's rect before its first item takes focus", async () => {
+        const user = userEvent.setup();
+        const realFocus = HTMLElement.prototype.focus;
+        const topWhenFocused: string[] = [];
+        vi.spyOn(HTMLElement.prototype, "focus").mockImplementation(function (this: HTMLElement, options?: FocusOptions) {
+          const menu = this.closest<HTMLElement>('[role="menu"]');
+          if (menu && this.getAttribute("role") === "menuitem") topWhenFocused.push(menu.style.top);
+          realFocus.call(this, options);
+        });
+        renderButton();
+        const launcher = screen.getByRole("button", { name: launcherName });
+        await user.click(launcher);
+        await screen.findByRole("menu");
+        await user.keyboard("{Escape}");
+        await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+
+        launcherBox = rectAt(300, 400, 120, 36);
+        await user.click(launcher);
+
+        const menu = await screen.findByRole("menu");
+        expect(topWhenFocused.at(-1)).toBe(`${launcherBox.bottom + 4}px`);
+        expect(menu.style.top).toBe(`${launcherBox.bottom + 4}px`);
+        expect(menu.style.left).toBe(`${launcherBox.left}px`);
+      });
+
+      it("opens above the launcher when there is no room below it", async () => {
+        const user = userEvent.setup();
+        launcherBox = rectAt(1200, 760, 120, 36);
+        renderButton();
+
+        await user.click(screen.getByRole("button", { name: launcherName }));
+
+        const menu = await screen.findByRole("menu");
+        expect(parseFloat(menu.style.top) + MENU_SIZE.height).toBeLessThanOrEqual(launcherBox.top);
+        expect(parseFloat(menu.style.top)).toBeGreaterThanOrEqual(0);
+      });
+
+      it("stays open when the pointer goes down on one of its items", async () => {
+        const user = userEvent.setup();
+        renderButton();
+        await user.click(screen.getByRole("button", { name: launcherName }));
+        const menu = await screen.findByRole("menu");
+
+        fireEvent.mouseDown(within(menu).getAllByRole("menuitem")[1]);
+
+        expect(screen.getByRole("menu")).toBe(menu);
+      });
+
+      it("keeps the menu out of the screenshot, by its launcher attribute", async () => {
+        const user = userEvent.setup();
+        renderButton();
+        await user.click(screen.getByRole("button", { name: launcherName }));
+
+        expect(await screen.findByRole("menu")).toHaveAttribute("data-bugreport-launcher");
+      });
     });
   });
 });
