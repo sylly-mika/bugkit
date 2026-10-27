@@ -33,6 +33,8 @@ export type BugReportButtonProps = {
   diagnostics?: () => unknown;
   /** See capture.ts — which image origins are worth trying to inline. */
   allowedImageOrigins?: string[];
+  /** Embeds the page's web fonts in the screenshot so its labels wrap as they do on the page (default true); false skips that for a host where it is slow. */
+  captureFonts?: boolean;
   /**
    * The host dresses the launcher. This folder owns what the button DOES —
    * capture before the dialog, keep focus, stay out of its own screenshot — and
@@ -84,6 +86,7 @@ export function BugReportButton(props: BugReportButtonProps) {
     getContext,
     diagnostics,
     allowedImageOrigins,
+    captureFonts,
     className,
     children,
     onOpenChange,
@@ -113,7 +116,7 @@ export function BugReportButton(props: BugReportButtonProps) {
       // Capture first, dialog second — the page has to be photographed before
       // our own UI is in the frame. Everything else is read at the same instant
       // so the context and the image describe the same moment.
-      const capture = await capturePage({ allowedImageOrigins });
+      const capture = await capturePage({ allowedImageOrigins, captureFonts });
       setSession({
         capture,
         context: getContext(),
@@ -152,7 +155,7 @@ export function BugReportButton(props: BugReportButtonProps) {
   async function captureRetake() {
     setPending({ mode: "capturing" });
     try {
-      const capture = await capturePage({ allowedImageOrigins });
+      const capture = await capturePage({ allowedImageOrigins, captureFonts });
       const next = {
         capture,
         context: getContext(),

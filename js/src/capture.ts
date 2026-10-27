@@ -1,4 +1,4 @@
-import { toPng } from "html-to-image";
+import { getFontEmbedCSS, toPng } from "html-to-image";
 
 export const CAPTURE_TIMEOUT_MS = 5_000;
 export const CAPTURE_NODE_CAP = 3_000;
@@ -12,6 +12,7 @@ export type CaptureOptions = {
   nodeCap?: number;
   timeoutMs?: number;
   allowedImageOrigins?: string[];
+  captureFonts?: boolean;
 };
 
 /** The launcher marks itself with this, and is dropped from its own screenshot. */
@@ -125,10 +126,31 @@ function markScrolled(root: HTMLElement): { css: string; unmark: () => void } {
   };
 }
 
+/**
+ * WHY: the page's fonts do not change between reports, and html-to-image would
+ * otherwise walk every stylesheet and fetch every font again on each capture. A
+ * font that cannot be read leaves the picture on the browser's own face rather
+ * than failing it, and the failure is cached with the rest, so a broken font is
+ * not refetched on every press.
+ */
+let pageFonts: Promise<string | null> | undefined;
+
+export function clearPageFonts(): void {
+  pageFonts = undefined;
+}
+
+function pageFontCSS(): Promise<string | null> {
+  pageFonts ??= Promise.resolve()
+    .then(() => getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" }))
+    .catch(() => null);
+  return pageFonts;
+}
+
 export async function capturePage(options: CaptureOptions = {}): Promise<CaptureResult> {
   const root = options.root ?? document.body;
   const nodeCap = options.nodeCap ?? CAPTURE_NODE_CAP;
   const timeoutMs = options.timeoutMs ?? CAPTURE_TIMEOUT_MS;
+  const captureFonts = options.captureFonts ?? true;
   const allowedOrigins = [window.location.origin, ...(options.allowedImageOrigins ?? [])];
 
   // Counted first, never raced. toPng walks and clones the tree synchronously,
@@ -145,31 +167,35 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
   });
 
   const scrolled = markScrolled(root);
-  const capture: Promise<CaptureResult> = toPng(root, {
-    // Deliberately off. html-to-image appends `?<timestamp>` to EVERY resource
-    // URL when it is on, blob: included — and a blob URL with a query string
-    // does not resolve, so every image the panel serves through
-    // URL.createObjectURL comes back ERR_FILE_NOT_FOUND and lands on the
-    // placeholder below. That is the floor plan and every station pin icon on
-    // the plan editor: the one page whose whole content is an image.
-    cacheBust: false,
-    // Left to itself html-to-image renders at devicePixelRatio, so a long page
-    // on a 2x display rasterises to four times the pixels and sails past the
-    // backend's 5 MB PNG cap. A bug report needs legible, not retina.
-    pixelRatio: 1,
-    // The panel declares no @font-face, so the font pass has nothing to inline
-    // and only costs a walk over live stylesheets it is willing to mutate.
-    skipFonts: true,
-    filter: captureFilter(allowedOrigins),
-    // A single image that cannot be inlined leaves a transparent hole rather
-    // than rejecting the export, so a page with one broken asset still yields
-    // a usable screenshot.
-    imagePlaceholder:
-      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
-    // A caller's own root is photographed whole; the page is framed.
-    ...(root === document.body ? viewportFraming(root) : {}),
-    ...(scrolled.css ? { fontEmbedCSS: scrolled.css } : {}),
-  })
+  const capture: Promise<CaptureResult> = (captureFonts ? pageFontCSS() : Promise.resolve(null))
+    .then((fonts) => {
+      const fontEmbedCSS = [fonts, scrolled.css].filter(Boolean).join("\n");
+      return toPng(root, {
+        // Deliberately off. html-to-image appends `?<timestamp>` to EVERY resource
+        // URL when it is on, blob: included — and a blob URL with a query string
+        // does not resolve, so every image the panel serves through
+        // URL.createObjectURL comes back ERR_FILE_NOT_FOUND and lands on the
+        // placeholder below. That is the floor plan and every station pin icon on
+        // the plan editor: the one page whose whole content is an image.
+        cacheBust: false,
+        // Left to itself html-to-image renders at devicePixelRatio, so a long page
+        // on a 2x display rasterises to four times the pixels and sails past the
+        // backend's 5 MB PNG cap. A bug report needs legible, not retina.
+        pixelRatio: 1,
+        // WHY: a label set in the page's web font wraps differently in the browser's
+        // fallback face; the pass inlines the @font-face rules the page uses.
+        skipFonts: !fonts,
+        filter: captureFilter(allowedOrigins),
+        // A single image that cannot be inlined leaves a transparent hole rather
+        // than rejecting the export, so a page with one broken asset still yields
+        // a usable screenshot.
+        imagePlaceholder:
+          "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+        // A caller's own root is photographed whole; the page is framed.
+        ...(root === document.body ? viewportFraming(root) : {}),
+        ...(fontEmbedCSS ? { fontEmbedCSS } : {}),
+      });
+    })
     .then((dataUrl): CaptureResult => ({ ok: true, dataUrl }))
     .catch((): CaptureResult => ({ ok: false, reason: "failed" }));
 

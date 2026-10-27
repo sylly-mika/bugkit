@@ -1,13 +1,17 @@
-import { toPng } from "html-to-image";
-import { capturePage } from "./capture.js";
+import { getFontEmbedCSS, toPng } from "html-to-image";
+import { capturePage, clearPageFonts } from "./capture.js";
 
-vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
+vi.mock("html-to-image", () => ({ toPng: vi.fn(), getFontEmbedCSS: vi.fn() }));
 
 const toPngMock = vi.mocked(toPng);
+const getFontEmbedCSSMock = vi.mocked(getFontEmbedCSS);
 
 describe("capturePage", () => {
   beforeEach(() => {
     toPngMock.mockReset();
+    getFontEmbedCSSMock.mockReset();
+    getFontEmbedCSSMock.mockResolvedValue("");
+    clearPageFonts();
     document.body.innerHTML = "";
   });
 
@@ -123,6 +127,46 @@ describe("capturePage", () => {
       skipFonts: true,
       cacheBust: false,
     });
+  });
+
+  it("embeds the page's web fonts in the capture by default", async () => {
+    const fonts = "@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}";
+    getFontEmbedCSSMock.mockResolvedValue(fonts);
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ fontEmbedCSS: fonts });
+    expect(toPngMock.mock.calls[0][1]?.skipFonts).toBeFalsy();
+  });
+
+  it("reads the page's font CSS once and reuses it for later captures", async () => {
+    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho}");
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+    await capturePage();
+
+    expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(1);
+    expect(toPngMock.mock.calls[1][1]?.fontEmbedCSS).toBe("@font-face{font-family:Mincho}");
+  });
+
+  it("skips the font pass when captureFonts is off", async () => {
+    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho}");
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage({ captureFonts: false });
+
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
+    expect(toPngMock.mock.calls[0][1]?.fontEmbedCSS).toBeUndefined();
+  });
+
+  it("still produces a screenshot when the page's fonts cannot be read", async () => {
+    getFontEmbedCSSMock.mockRejectedValue(new Error("font 404"));
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await expect(capturePage()).resolves.toEqual({ ok: true, dataUrl: "data:image/png;base64,AAAA" });
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
   });
 
   // See viewportFraming in capture.ts: a viewport-sized picture of a

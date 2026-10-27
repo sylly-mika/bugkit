@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { toPng } from "html-to-image";
+import { getFontEmbedCSS, toPng } from "html-to-image";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportButton } from "./BugReportButton.js";
+import { clearPageFonts } from "./capture.js";
 import { defaultLabels } from "./labels.js";
 
-vi.mock("html-to-image", () => ({ toPng: vi.fn() }));
+vi.mock("html-to-image", () => ({ toPng: vi.fn(), getFontEmbedCSS: vi.fn() }));
 
 const toPngMock = vi.mocked(toPng);
+const getFontEmbedCSSMock = vi.mocked(getFontEmbedCSS);
 
 const getContext = () => ({ area: "/projects/7/board", version: "3862535" });
 // WHY: the capture hint and the sent-notice live region both have role="status"; the hint is the one inside its part.
@@ -34,6 +36,9 @@ describe("BugReportButton", () => {
   // with nobody listening.
   beforeEach(() => {
     toPngMock.mockReset();
+    getFontEmbedCSSMock.mockReset();
+    getFontEmbedCSSMock.mockResolvedValue("");
+    clearPageFonts();
   });
 
   // The host passes only the words it changes; the rest come from the English
@@ -136,6 +141,30 @@ describe("BugReportButton", () => {
     other.src = "https://cdn.other.test/a.png";
     expect(filter!(own)).toBe(true);
     expect(filter!(other)).toBe(false);
+  });
+
+  it("embeds the page's web fonts in the screenshot unless captureFonts is off", async () => {
+    const user = userEvent.setup();
+    const fonts = "@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}";
+    getFontEmbedCSSMock.mockResolvedValue(fonts);
+    toPngMock.mockResolvedValue("data:image/png;base64,AAECAw==");
+
+    const { unmount } = render(
+      <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} />,
+    );
+    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await screen.findByRole("dialog");
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ fontEmbedCSS: fonts });
+    unmount();
+
+    clearPageFonts();
+    toPngMock.mockClear();
+    render(
+      <BugReportButton submit={vi.fn()} getContext={getContext} diagnostics={() => []} captureFonts={false} />,
+    );
+    await user.click(screen.getByRole("button", { name: defaultLabels.buttonLabel }));
+    await screen.findByRole("dialog");
+    expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
   });
 
   // Two presses in one tick both read the render's `busy` as false; only a
