@@ -369,7 +369,7 @@ func TestRefusal429CountsRefusedReports(t *testing.T) {
 
 	blank := validParts()
 	blank["description"] = ""
-	assertProblem(t, post(t, cfg, blank, nil), http.StatusUnprocessableEntity, "A description is required.")
+	assertProblem(t, post(t, cfg, blank, nil), http.StatusUnprocessableEntity, "A summary or a description is required.")
 
 	rec := post(t, cfg, validParts(), nil)
 	if rec.Code != http.StatusTooManyRequests {

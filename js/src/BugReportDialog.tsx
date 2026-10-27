@@ -62,7 +62,6 @@ const FOCUSABLE =
 const TITLE_ID = "bug-report-title";
 const KIND_ID = "bug-report-kind-label";
 const SUMMARY_ID = "bug-report-summary";
-const SUMMARY_ERROR_ID = "bug-report-summary-error";
 const DESCRIPTION_ID = "bug-report-description";
 const ERROR_ID = "bug-report-description-error";
 const COUNTER_ID = "bug-report-description-count";
@@ -112,7 +111,6 @@ export function BugReportDialog(props: BugReportDialogProps) {
   const [draftSaved, setDraftSaved] = useState(() => readDraft() !== null);
   const [dataUrl, setDataUrl] = useState(capture.ok ? capture.dataUrl : null);
   const [removed, setRemoved] = useState(false);
-  const [summaryInvalid, setSummaryInvalid] = useState(false);
   const [descriptionInvalid, setDescriptionInvalid] = useState(false);
   const [oversize, setOversize] = useState(false);
   const [copyState, setCopyState] = useState<CopyState>("idle");
@@ -243,7 +241,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
 
   function changeSummary(value: string) {
     setSummary(value);
-    if (summaryInvalid) setSummaryInvalid(false);
+    if (descriptionInvalid) setDescriptionInvalid(false);
     persist({ kind, summary: value, description, impact });
   }
 
@@ -285,15 +283,9 @@ export function BugReportDialog(props: BugReportDialogProps) {
     // WHY: aria-disabled leaves the button clickable, so the guard has to live in the handler.
     if (sending) return;
 
-    const missingSummary = summary.trim() === "";
-    const missingDescription = description.trim() === "";
-    setSummaryInvalid(missingSummary);
-    setDescriptionInvalid(!missingSummary && missingDescription);
-    if (missingSummary) {
-      summaryRef.current?.focus();
-      return;
-    }
-    if (missingDescription) {
+    const missingBoth = summary.trim() === "" && description.trim() === "";
+    setDescriptionInvalid(missingBoth);
+    if (missingBoth) {
       descriptionRef.current?.focus();
       return;
     }
@@ -360,6 +352,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
   ];
 
   const descriptionDescribedBy = descriptionInvalid ? `${ERROR_ID} ${COUNTER_ID}` : COUNTER_ID;
+  const descriptionNeeded = summary.trim() === "";
 
   return createPortal(
     <div {...partProps(classNames, "overlay")} role="dialog" aria-modal="true" aria-labelledby={TITLE_ID}>
@@ -508,17 +501,9 @@ export function BugReportDialog(props: BugReportDialogProps) {
                     {...partProps(classNames, "input")}
                     placeholder={labels.summaryPlaceholder}
                     maxLength={SUMMARY_LIMIT}
-                    aria-required="true"
-                    aria-invalid={summaryInvalid}
-                    aria-describedby={summaryInvalid ? SUMMARY_ERROR_ID : undefined}
                     value={summary}
                     onChange={(event) => changeSummary(event.target.value)}
                   />
-                  {summaryInvalid ? (
-                    <p id={SUMMARY_ERROR_ID} role="alert" {...partProps(classNames, "error")}>
-                      {labels.summaryRequired}
-                    </p>
-                  ) : null}
                 </div>
 
                 <div {...partProps(classNames, "field")}>
@@ -531,7 +516,8 @@ export function BugReportDialog(props: BugReportDialogProps) {
                     {...partProps(classNames, "textarea")}
                     placeholder={k.descriptionPlaceholder}
                     maxLength={DESCRIPTION_LIMIT}
-                    required
+                    required={descriptionNeeded}
+                    aria-required={descriptionNeeded}
                     aria-invalid={descriptionInvalid}
                     aria-describedby={descriptionDescribedBy}
                     value={description}
@@ -542,7 +528,7 @@ export function BugReportDialog(props: BugReportDialogProps) {
                   </p>
                   {descriptionInvalid ? (
                     <p id={ERROR_ID} role="alert" {...partProps(classNames, "error")}>
-                      {k.descriptionRequired}
+                      {labels.summaryOrDescriptionRequired}
                     </p>
                   ) : null}
                 </div>

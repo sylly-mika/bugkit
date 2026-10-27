@@ -97,8 +97,8 @@ func parseReport(r *http.Request, lim Limits) (Report, error) {
 		Impact:      strings.TrimSpace(r.FormValue("impact")),
 		Area:        strings.TrimSpace(r.FormValue("area")),
 	}
-	if report.Description == "" {
-		return Report{}, refusal{http.StatusUnprocessableEntity, "A description is required."}
+	if report.Summary == "" && report.Description == "" {
+		return Report{}, refusal{http.StatusUnprocessableEntity, "A summary or a description is required."}
 	}
 	if utf8.RuneCountInString(report.Description) > lim.Description {
 		return Report{}, refusal{http.StatusUnprocessableEntity,
