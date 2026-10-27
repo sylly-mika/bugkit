@@ -647,6 +647,49 @@ describe("BugReportButton", () => {
       expect(toPngMock).not.toHaveBeenCalled();
     });
 
+    it("Escape on a menu item closes only the menu: the page does not see it, and focus returns to the launcher", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      const launcher = screen.getByRole("button", { name: launcherName });
+      await user.click(launcher);
+      await screen.findByRole("menu");
+      const pageKeys = vi.fn();
+      const seen: KeyboardEvent[] = [];
+      const recordKey = (event: KeyboardEvent) => seen.push(event);
+      document.addEventListener("keydown", pageKeys);
+      document.addEventListener("keydown", recordKey, { capture: true });
+
+      try {
+        await user.keyboard("{Escape}");
+
+        await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+        expect(pageKeys.mock.calls.some(([event]) => event.key === "Escape")).toBe(false);
+        expect(seen.find((event) => event.key === "Escape")?.defaultPrevented).toBe(true);
+        expect(launcher).toHaveFocus();
+      } finally {
+        document.removeEventListener("keydown", pageKeys);
+        document.removeEventListener("keydown", recordKey, { capture: true });
+      }
+    });
+
+    it("leaves ArrowDown in the open menu to the page", async () => {
+      const user = userEvent.setup();
+      renderButton();
+      await user.click(screen.getByRole("button", { name: launcherName }));
+      const items = within(await screen.findByRole("menu")).getAllByRole("menuitem");
+      const pageKeys = vi.fn();
+      document.addEventListener("keydown", pageKeys);
+
+      try {
+        await user.keyboard("{ArrowDown}");
+
+        expect(items[1]).toHaveFocus();
+        expect(pageKeys.mock.calls.some(([event]) => event.key === "ArrowDown")).toBe(true);
+      } finally {
+        document.removeEventListener("keydown", pageKeys);
+      }
+    });
+
     it("closes when the reporter clicks elsewhere", async () => {
       const user = userEvent.setup();
       renderButton();

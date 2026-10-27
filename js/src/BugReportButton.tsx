@@ -216,6 +216,11 @@ export function BugReportButton(props: BugReportButtonProps) {
         items[last].focus();
         break;
       case "Escape":
+        // WHY: the host's own Escape handler (a drawer or dialog) listens on the document and must not close with the menu.
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu();
+        break;
       case "Tab":
         closeMenu();
         break;
