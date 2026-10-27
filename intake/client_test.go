@@ -505,10 +505,11 @@ func TestSubmitIsSafeForConcurrentUse(t *testing.T) {
 
 func TestListSendsTheIntakeRequest(t *testing.T) {
 	var mu sync.Mutex
-	var method, path, query, auth string
+	var method, path, query, auth, accept string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		method, path, query, auth = r.Method, r.URL.Path, r.URL.RawQuery, r.Header.Get("Authorization")
+		accept = r.Header.Get("Accept")
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"data":[{"number":12,"title":"Login fails","status":"Done","status_category":"done","reporter_name":null,"reported_at":"2026-10-20T10:00:00Z","updated_at":"2026-10-21T10:00:00Z"}],"meta":{"page":2,"per_page":20,"total":21,"total_pages":2}}`)
@@ -535,6 +536,9 @@ func TestListSendsTheIntakeRequest(t *testing.T) {
 	if auth != "Bearer "+key {
 		t.Errorf("Authorization is not the intake key (<redacted>)")
 	}
+	if accept != "application/json" {
+		t.Errorf("Accept = %q, want application/json", accept)
+	}
 
 	if len(page.Data) != 1 {
 		t.Fatalf("got %d items, want 1", len(page.Data))
@@ -554,6 +558,19 @@ func TestListSendsTheIntakeRequest(t *testing.T) {
 	}
 	if want := (bugkit.PageMeta{Page: 2, PerPage: 20, Total: 21, TotalPages: 2}); page.Meta != want {
 		t.Errorf("meta = %+v, want %+v", page.Meta, want)
+	}
+}
+
+func TestListRefusesAnOversizedBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"data":[],"meta":{"page":1,"per_page":20,"total":0,"total_pages":0},"pad":"`+strings.Repeat("x", 1<<20)+`"}`)
+	}))
+	defer srv.Close()
+
+	_, err := intake.New(srv.URL+intakePath, testKey()).List(context.Background(), 1)
+	if err == nil || err.Error() != "bugkit: intake answered 200 with an unreadable body" {
+		t.Fatalf("error = %v, want the unreadable-body error", err)
 	}
 }
 

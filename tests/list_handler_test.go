@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sylly-mika/bugkit"
 )
@@ -101,5 +102,30 @@ func TestListHandlerRefuses(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// deadlineLister records whether the context it is given has a deadline and how far away it is.
+type deadlineLister struct {
+	bounded bool
+	left    time.Duration
+}
+
+func (l *deadlineLister) List(ctx context.Context, _ int) (bugkit.ReportPage, error) {
+	deadline, ok := ctx.Deadline()
+	l.bounded, l.left = ok, time.Until(deadline)
+	return bugkit.ReportPage{}, nil
+}
+
+func TestListHandlerBoundsTheListing(t *testing.T) {
+	lister := &deadlineLister{}
+	cfg := bugkit.ListConfig{Who: whoMiky, Lister: lister, Logger: slog.New(slog.NewTextHandler(new(bytes.Buffer), nil))}
+	rec := httptest.NewRecorder()
+	bugkit.ListHandler(cfg).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?page=1", nil))
+	if !lister.bounded {
+		t.Fatal("the Lister's context has no deadline")
+	}
+	if lister.left <= 25*time.Second || lister.left > 30*time.Second {
+		t.Errorf("the Lister's deadline is %v away, want about 30s", lister.left)
 	}
 }

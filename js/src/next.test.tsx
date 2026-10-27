@@ -116,6 +116,15 @@ describe("BugReport", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(defaultLabels.reportsFailed);
   });
 
+  it("offers no Reported issues item without reportsEndpoint", async () => {
+    const user = userEvent.setup();
+    render(<BugReport />);
+
+    await user.click(screen.getByRole("button", { name: `${defaultLabels.buttonLabel}, ${defaultLabels.buttonMenuHint}` }));
+    expect(await screen.findByRole("menuitem", { name: defaultLabels.screenshotNow })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: defaultLabels.reportedIssues })).toBeNull();
+  });
+
   it("gives up on a list request that never answers after 30 seconds", async () => {
     vi.useFakeTimers();
     try {

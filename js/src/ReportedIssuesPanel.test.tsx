@@ -233,6 +233,53 @@ describe("ReportedIssuesPanel", () => {
     expect(statuses[1].textContent).toBe("Waiting");
   });
 
+  it("shows the default text of each status category", async () => {
+    const user = userEvent.setup();
+    const statuses: ReportedIssue[] = [
+      { ...old, number: 1, title: "A", status: "Triage", status_category: "triage" },
+      { ...old, number: 2, title: "B", status: "Todo", status_category: "todo" },
+      { ...old, number: 3, title: "C", status: "Doing", status_category: "in_progress" },
+      { ...old, number: 4, title: "D", status: "Done", status_category: "done" },
+      { ...old, number: 5, title: "E", status: "Cancelled", status_category: "cancelled" },
+    ];
+    const listReports = vi.fn(async (_page: number): Promise<ReportedIssuesPage> =>
+      answer(statuses, { page: 1, per_page: 20, total: 5, total_pages: 1 }),
+    );
+    renderButton({ listReports });
+
+    const dialog = await openReports(user);
+    await within(dialog).findByText("#1 A");
+    const texts = Array.from(dialog.querySelectorAll<HTMLElement>('[data-bugkit="reports-status"]'), (el) => el.textContent);
+    expect(texts).toEqual(["Received", "Planned", "In progress", "Done", "Closed"]);
+  });
+
+  it("moves focus to Close when it opens", async () => {
+    const user = userEvent.setup();
+    const listReports = vi.fn(async (_page: number): Promise<ReportedIssuesPage> =>
+      answer([], { page: 1, per_page: 20, total: 0, total_pages: 0 }),
+    );
+    renderButton({ listReports });
+
+    const dialog = await openReports(user);
+    expect(within(dialog).getByRole("button", { name: "Close" })).toHaveFocus();
+  });
+
+  it("shows each date formatted for the reader, with the ISO time as its datetime", async () => {
+    const user = userEvent.setup();
+    const listReports = vi.fn(async (_page: number): Promise<ReportedIssuesPage> =>
+      answer([login], { page: 1, per_page: 20, total: 1, total_pages: 1 }),
+    );
+    renderButton({ listReports });
+
+    const dialog = await openReports(user);
+    await within(dialog).findByText("#12 Login fails");
+    const formatted = (iso: string) => new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(iso));
+    const times = dialog.querySelectorAll("time");
+    expect(times[0].textContent).toBe(formatted(login.reported_at));
+    expect(times[1].textContent).toBe(formatted(login.updated_at));
+    expect(times[0]).toHaveAttribute("datetime", login.reported_at);
+  });
+
   it("offers no Reported issues item without listReports", async () => {
     const user = userEvent.setup();
     renderButton();
