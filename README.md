@@ -199,6 +199,8 @@ import { BugReport } from "@sylly-mika/bugkit/next";
 `BugReport` posts to `/api/bug-report` by default. It takes every
 `BugReportButton` prop except `submit`, and `getContext` is optional.
 
+bugkit supports Next.js 15.5 or later and 16.4.3 or later (App Router), with React 19.2 or later. A runnable app is in [`examples/next`](examples/next).
+
 For a static export, or when `bugkit.Handler` serves the route, pass the URL
 as `endpoint` and send the session with `init`. `init` is a `RequestInit`, or a
 function that returns one (or a promise of one), merged into the request.

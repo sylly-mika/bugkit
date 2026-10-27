@@ -41,8 +41,14 @@
   },
   "peerDependencies": {
     "html-to-image": "^1.11.13",
+    "next": "^15.5.0 || ^16.4.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",
