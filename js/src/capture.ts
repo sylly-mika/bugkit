@@ -232,7 +232,9 @@ function within<T>(pending: Promise<T>, fallback: T): Promise<T> {
  * WHY: the page's fonts and seals do not change between reports, and
  * html-to-image would otherwise walk every stylesheet and fetch every font again
  * on each capture. A read that fails is dropped, so the next capture reads it
- * again. A read that is still pending after READ_BOUND_MS is left out of this
+ * again; so is a font list that still holds a font's url, which html-to-image
+ * leaves there when it cannot fetch the font (a 404 is not a rejected read). A
+ * read that is still pending after READ_BOUND_MS is left out of this
  * capture, and the read itself is kept, so a slow font serves the captures
  * after it.
  */
@@ -262,9 +264,14 @@ const FACE_WITHOUT_SOURCE = /@font-face\s*\{(?![^}]*\bsrc\s*:)/;
 
 function pageFontCSS(): Promise<string | null> {
   return cachedRead("fonts", () =>
-    getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" }).then((css) =>
-      FACE_WITHOUT_SOURCE.test(css) ? getFontEmbedCSS(document.body) : css,
-    ),
+    getFontEmbedCSS(document.body, { preferredFontFormat: "woff2" })
+      .then((css) => (FACE_WITHOUT_SOURCE.test(css) ? getFontEmbedCSS(document.body) : css))
+      .then((css) => {
+        if (/src:\s*url\((?!["']?data:)/.test(css)) {
+          reads.delete("fonts");
+        }
+        return css;
+      }),
   );
 }
 

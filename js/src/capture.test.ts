@@ -348,6 +348,13 @@ describe("capturePage", () => {
 
     await expect(pending).resolves.toEqual({ ok: true, dataUrl: "data:image/png;base64,AAAA" });
     expect(toPngMock.mock.calls[0][1]).toMatchObject({ skipFonts: true });
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await capturePage();
+
+    expect(toPngMock.mock.calls[1][1]?.fontEmbedCSS).toBe(
+      "@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}",
+    );
   });
 
   it("leaves out a seal that never settles and still captures", async () => {
@@ -373,6 +380,17 @@ describe("capturePage", () => {
 
     expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(2);
     expect(toPngMock.mock.calls[1][1]?.fontEmbedCSS).toBe("@font-face{font-family:Mincho;src:url(data:font/woff2;base64,AAAA)}");
+  });
+
+  it("reads the page's fonts again when a font was left with its url", async () => {
+    getFontEmbedCSSMock.mockResolvedValue("@font-face{font-family:Mincho;src:url(/font-missing.ttf)}");
+    toPngMock.mockResolvedValue("data:image/png;base64,AAAA");
+
+    await capturePage();
+    await capturePage();
+
+    expect(getFontEmbedCSSMock).toHaveBeenCalledTimes(2);
+    expect(toPngMock.mock.calls[0][1]?.fontEmbedCSS).toContain("src:url(/font-missing.ttf)");
   });
 
   it("fetches a seal once across captures", async () => {
