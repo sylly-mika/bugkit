@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BugReportButton } from "./BugReportButton.js";
 import { clearPageFonts } from "./capture.js";
 import { defaultLabels } from "./labels.js";
+import { BUGKIT_CSS } from "./theme.js";
 
 vi.mock("html-to-image", () => ({ toPng: vi.fn(), getFontEmbedCSS: vi.fn() }));
 
@@ -1122,6 +1123,32 @@ describe("BugReportButton", () => {
 
         expect(await screen.findByRole("menu")).toHaveAttribute("data-bugreport-launcher");
       });
+    });
+  });
+
+  describe("its styles", () => {
+    beforeEach(() => {
+      document.head.querySelectorAll("style[data-bugkit-styles]").forEach((style) => style.remove());
+    });
+
+    it("puts bugkit's styles in the head before the screenshot menu first opens", async () => {
+      const user = userEvent.setup();
+      renderButton();
+
+      expect(document.querySelector("style[data-bugkit-styles]")?.textContent).toBe(BUGKIT_CSS);
+
+      await user.click(screen.getByRole("button", { name: launcherName }));
+
+      expect(await screen.findByRole("menu")).toBeInTheDocument();
+      const styles = document.querySelectorAll("style[data-bugkit-styles]");
+      expect(styles).toHaveLength(1);
+      expect(styles[0].textContent).toBe(BUGKIT_CSS);
+    });
+
+    it("gives that style the host's nonce", () => {
+      render(<BugReportButton submit={vi.fn()} getContext={getContext} nonce="n2" />);
+
+      expect(document.querySelector("style[data-bugkit-styles]")?.getAttribute("nonce")).toBe("n2");
     });
   });
 });

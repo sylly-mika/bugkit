@@ -17,7 +17,7 @@ import {
   type BugReportSubmit,
 } from "./payload.js";
 import { formatFiled, mergeLabels, type BugReportLabelOverrides, type ResolvedBugReportLabels } from "./labels.js";
-import { partProps, type BugReportClassNames } from "./theme.js";
+import { partProps, useBugkitStyles, type BugReportClassNames } from "./theme.js";
 
 const SCREENSHOT_DELAY_SECONDS = 3;
 const SCREENSHOT_KEY = "s";
@@ -131,6 +131,7 @@ export function BugReportButton(props: BugReportButtonProps) {
     confirmation = "notice",
   } = props;
   const labels: ResolvedBugReportLabels = mergeLabels(props.labels);
+  useBugkitStyles(nonce);
   const [session, setSession] = useState<Session | null>(null);
   const [notice, setNotice] = useState<{ id: number; number: number } | null>(null);
   const noticeIds = useRef(0);
