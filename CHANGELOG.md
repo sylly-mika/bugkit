@@ -7,6 +7,8 @@
   report button or scrolls the page. The menu is placed before its first item
   takes focus, and it is cleared on close, so a reopened menu is placed from
   the button's place at that moment.
+- npm: Escape with the screenshot menu open closes only the menu, not the
+  host's drawer or dialog around the button; focus returns to the button.
 - Nothing is removed from the API.
 
 ## v0.11.0
