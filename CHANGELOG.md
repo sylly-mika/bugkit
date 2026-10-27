@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.12.0
+
+- npm: BugReportButton takes listReports, and BugReport takes reportsEndpoint:
+  the menu gets a "Reported issues" item that opens a read-only, paged list of
+  the site's reports.
+- go: intake.Client.List and bugkit.ListHandler forward the list request; the
+  key stays on the server.
+- Nothing is removed.
+
 ## v0.11.2
 
 - npm: the report button injects bugkit's styles itself, so the screenshot

@@ -1,6 +1,6 @@
 {
   "name": "@sylly-mika/bugkit",
-  "version": "0.11.2",
+  "version": "0.12.0",
   "description": "Bug report button, dialog and screenshot capture for React apps that send reports through bugkit's Go handler.",
   "license": "MIT",
   "type": "module",
