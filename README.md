@@ -484,12 +484,16 @@ your `intake.Client`. `ListHandler` answers 401 `Not authenticated.` for no
 signed-in reporter, 503 `Bug reporting is not configured on this server.` when
 `Lister` is nil or the intake refuses the key, and 502 `The reports could not
 be loaded.` for any other failure. A 200 answer is the intake's JSON page.
+`Who` must admit only the people who may read the list; a `Who` that admits any signed-in reporter shows them every report of the project.
 
 The panel's text comes from 13 optional labels in `labels`: `reportedIssues`,
 `reportsColumnTitle`, `reportsColumnStatus`, `reportsColumnReporter`,
 `reportsColumnReported`, `reportsColumnChanged`, `reportsLoading`,
 `reportsFailed`, `reportsEmpty`, `reportsUnknownReporter`, `reportsPrevious`,
 `reportsNext`, and `reportsPage`, where `{page}` and `{pages}` are replaced.
+The status names default to English: `triage` is "Received", `todo` is
+"Planned", `in_progress` is "In progress", `done` is "Done" and `cancelled` is
+"Closed". `statusLabels` overrides any of them.
 
 ## Configuration reference
 

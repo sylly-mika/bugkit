@@ -109,8 +109,8 @@ type Lister interface {
 	List(ctx context.Context, page int) (ReportPage, error)
 }
 
-// ListConfig configures ListHandler. Who and Lister are required; Logger
-// defaults to slog.Default().
+// ListConfig configures ListHandler. A nil Who answers 401 to every request,
+// and a nil Lister answers 503. Logger defaults to slog.Default().
 type ListConfig struct {
 	Lister Lister
 	Who    func(*http.Request) (Reporter, bool)
