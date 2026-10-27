@@ -247,6 +247,11 @@ path. All props are in the [reference](#npm-bugreportbutton-props).
 groups merge key by key. `filed` is the success sentence; `{number}` in it
 becomes the filed task's number.
 
+Two labels are new in v0.10.0. `summaryOrDescriptionRequired` is shown under
+"What happened?" when both Summary and the description are empty. `sentNotice`
+is the notice after a send; `{number}` in it becomes the number. A label set
+from v0.9.0 or earlier still works: a missing key takes the default.
+
 ```tsx
 <BugReportButton
   submit={submit}
@@ -491,6 +496,8 @@ output shows it as `<redacted>`. The client never follows a redirect.
 | `nonce` | `string` | none | CSP nonce for bugkit's `<style>` element. |
 | `technicalDetails` | `boolean` | `true` | Shows the Technical details disclosure; the details are sent either way. |
 | `screenshotModes` | `boolean` | `true` | Shows the dialog's screenshot options: retake after a 3-second countdown, retake on the S key, or send without a screenshot. |
+| `onSent` | `(result: { number: number }) => void` | none | Called after a send with the filed number. With it set, bugkit shows no notice, so the host can show its own. |
+| `confirmation` | `"notice" \| "dialog"` | `"notice"` | After a send, `"notice"` closes the dialog and shows a notice for about 5 seconds; `"dialog"` keeps the v0.9.0 sent view in the dialog. |
 
 ### npm: `BugReport` (`@sylly-mika/bugkit/next`)
 
@@ -552,7 +559,7 @@ For an app that writes its own client instead of using `bugkit/intake`.
 |---|---|---|
 | `kind` | no | `bug` or `feature`; empty means `bug` |
 | `summary` | no | 200 characters |
-| `description` | yes | 5000 characters |
+| `description` | yes, unless `summary` is set | 5000 characters |
 | `impact` | yes | `blocks`, `workaround` or `cosmetic` |
 | `area` | yes | 512 characters, starts with `/` |
 | `diagnostics` | yes | JSON, 32 KiB (32768 bytes) |
@@ -607,7 +614,7 @@ the body.
 | Reporter over the limit | 429, `Retry-After` | `Too many bug reports. Try again in <n> seconds.` |
 | Body is not a readable multipart form | 400 | `The report body is not a readable multipart form.` |
 | Body or screenshot too large | 413 | `The report is larger than …` / `The screenshot is larger than …` |
-| A part is missing or invalid | 422 | One sentence naming the part, for example `A description is required.` |
+| A part is missing or invalid | 422 | One sentence naming the part, for example `A summary or a description is required.` |
 | Intake answered 429 | 429, intake's `Retry-After` (60 s if none usable) | `Too many bug reports. Try again in <n> seconds.` |
 | Intake answered 401, 403 or 409 (bad or revoked key, archived project) | 503 | `Bug reporting is not configured on this server.` |
 | Intake failed otherwise, or no answer within 30 s | 502 | `The report could not be filed. Copy it and try again.` |

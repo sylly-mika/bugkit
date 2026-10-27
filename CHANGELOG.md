@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.10.0
+
+- npm: a report with a summary needs no description. "What happened?" is
+  required only when Summary is empty. With neither, the form shows
+  `summaryOrDescriptionRequired` ("Add a summary or describe what happened.")
+  under "What happened?" and sends nothing. The same rule holds for a feature
+  request.
+- npm: a sent report closes the dialog and shows a notice for about 5 seconds,
+  `sentNotice` ("Report sent. Its number is #{number}."), fixed at the bottom
+  right with a close button. It stays while the pointer is over it or it has
+  focus. The sent view is no longer shown by default. `BugReportButton` and
+  `BugReport` take `onSent({ number })`: when set, bugkit calls it after a send
+  and shows no notice of its own. `confirmation` (`"notice"`, the default, or
+  `"dialog"`) picks the confirmation; `"dialog"` keeps the v0.9.0 sent view.
+- go: the intake parser accepts an empty description when the summary is not
+  blank. With both blank it refuses with
+  `A summary or a description is required.`
+- Nothing is removed. The sent view is kept behind confirmation="dialog".
+
 ## v0.9.0
 
 - npm: the dialog offers screenshot options: retake the screenshot after a
