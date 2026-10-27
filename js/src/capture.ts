@@ -259,6 +259,21 @@ function pageFontCSS(): Promise<string | null> {
   );
 }
 
+/**
+ * WHY: marking can throw after the scroll marks are set, and the finally in
+ * capturePage only runs once marking has returned, so the scroll marks are
+ * taken off here before the error leaves.
+ */
+function markPage(root: HTMLElement, allowedOrigins: string[]) {
+  const scrolled = markScrolled(root);
+  try {
+    return { scrolled, borders: markBorderImages(root, allowedOrigins) };
+  } catch (error) {
+    scrolled.unmark();
+    throw error;
+  }
+}
+
 export async function capturePage(options: CaptureOptions = {}): Promise<CaptureResult> {
   const root = options.root ?? document.body;
   const nodeCap = options.nodeCap ?? CAPTURE_NODE_CAP;
@@ -273,14 +288,13 @@ export async function capturePage(options: CaptureOptions = {}): Promise<Capture
     return { ok: false, reason: "too-many-nodes" };
   }
 
+  const { scrolled, borders } = markPage(root, allowedOrigins);
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   const timeout = new Promise<CaptureResult>((resolve) => {
     timer = setTimeout(() => resolve({ ok: false, reason: "timed-out" }), timeoutMs);
   });
 
-  const scrolled = markScrolled(root);
-  const borders = markBorderImages(root, allowedOrigins);
   const capture: Promise<CaptureResult> = Promise.all([
     captureFonts ? pageFontCSS() : Promise.resolve(null),
     borders.css,

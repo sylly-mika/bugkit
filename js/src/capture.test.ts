@@ -25,6 +25,16 @@ function pageWithSealLayer(
   return button;
 }
 
+const MARKS = "[data-bugkit-scroll], [data-bugkit-layer]";
+
+function pageWithMarkedElements(): void {
+  const panel = document.createElement("div");
+  document.body.append(panel);
+  Object.defineProperty(panel, "scrollTop", { value: 120, configurable: true });
+  pageWithSealLayer();
+  vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("offline"))));
+}
+
 describe("capturePage", () => {
   beforeEach(() => {
     toPngMock.mockReset();
@@ -130,6 +140,61 @@ describe("capturePage", () => {
     await expect(capturePage()).resolves.toEqual({ ok: false, reason: "failed" });
     expect(markedDuringCapture).toBe("0");
     expect(document.querySelector("[data-bugkit-scroll]")).toBeNull();
+  });
+
+  it("takes its marks off the page when the capture resolves", async () => {
+    pageWithMarkedElements();
+    let markedDuringCapture = 0;
+    toPngMock.mockImplementation(() => {
+      markedDuringCapture = document.querySelectorAll(MARKS).length;
+      return Promise.resolve("data:image/png;base64,AAAA");
+    });
+
+    await expect(capturePage()).resolves.toEqual({ ok: true, dataUrl: "data:image/png;base64,AAAA" });
+    expect(markedDuringCapture).toBe(2);
+    expect(document.querySelector(MARKS)).toBeNull();
+  });
+
+  it("takes its marks off the page when the capture rejects", async () => {
+    pageWithMarkedElements();
+    let markedDuringCapture = 0;
+    toPngMock.mockImplementation(() => {
+      markedDuringCapture = document.querySelectorAll(MARKS).length;
+      return Promise.reject(new Error("tainted canvas"));
+    });
+
+    await expect(capturePage()).resolves.toEqual({ ok: false, reason: "failed" });
+    expect(markedDuringCapture).toBe(2);
+    expect(document.querySelector(MARKS)).toBeNull();
+  });
+
+  it("takes its marks off the page when the capture never settles", async () => {
+    vi.useFakeTimers();
+    pageWithMarkedElements();
+    let markedDuringCapture = 0;
+    toPngMock.mockImplementation(() => {
+      markedDuringCapture = document.querySelectorAll(MARKS).length;
+      return new Promise(() => {});
+    });
+
+    const pending = capturePage({ timeoutMs: 5_000 });
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    await expect(pending).resolves.toEqual({ ok: false, reason: "timed-out" });
+    expect(markedDuringCapture).toBe(2);
+    expect(document.querySelector(MARKS)).toBeNull();
+  });
+
+  it("takes its marks off the page when marking the seal layers throws", async () => {
+    pageWithMarkedElements();
+    vi.spyOn(window, "getComputedStyle").mockImplementation(() => {
+      throw new Error("detached");
+    });
+
+    await capturePage().catch(() => undefined);
+
+    expect(toPngMock).not.toHaveBeenCalled();
+    expect(document.querySelector(MARKS)).toBeNull();
   });
 
   it("leaves an unscrolled page's capture as it was", async () => {
