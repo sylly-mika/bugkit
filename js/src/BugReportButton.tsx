@@ -15,8 +15,16 @@ import {
   type BugReportContext,
   type BugReportEnvironment,
   type BugReportSubmit,
+  type ReportedIssuesList,
 } from "./payload.js";
-import { formatFiled, mergeLabels, type BugReportLabelOverrides, type ResolvedBugReportLabels } from "./labels.js";
+import {
+  formatFiled,
+  mergeLabels,
+  type BugReportLabelOverrides,
+  type ReportedStatusLabels,
+  type ResolvedBugReportLabels,
+} from "./labels.js";
+import { ReportedIssuesPanel } from "./ReportedIssuesPanel.js";
 import { partProps, useBugkitStyles, type BugReportClassNames } from "./theme.js";
 
 const SCREENSHOT_DELAY_SECONDS = 3;
@@ -74,6 +82,10 @@ export type BugReportButtonProps = {
   onSent?: (result: { number: number }) => void;
   /** After a send: "notice" (default) closes the dialog and shows a notice for a few seconds; "dialog" keeps the sent view in the dialog. */
   confirmation?: BugReportConfirmation;
+  /** Lists the site's reports: with it set and the menu on, the menu gets a "Reported issues" item that opens a read-only, paged list. */
+  listReports?: ReportedIssuesList;
+  /** The host's text per status category on the reports list; a category left out keeps its English default. */
+  statusLabels?: ReportedStatusLabels;
 };
 
 type Session = {
@@ -129,6 +141,8 @@ export function BugReportButton(props: BugReportButtonProps) {
     screenshotModes,
     onSent,
     confirmation = "notice",
+    listReports,
+    statusLabels,
   } = props;
   const labels: ResolvedBugReportLabels = mergeLabels(props.labels);
   useBugkitStyles(nonce);
@@ -149,6 +163,7 @@ export function BugReportButton(props: BugReportButtonProps) {
   const menu = useRef<HTMLDivElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPlace, setMenuPlace] = useState<{ top: number; left: number } | null>(null);
+  const [reportsOpen, setReportsOpen] = useState(false);
   const menuMode = screenshotModes !== false;
 
   function sessionFor(capture: CaptureResult): Session {
@@ -192,6 +207,16 @@ export function BugReportButton(props: BugReportButtonProps) {
     setMenuOpen(false);
     setMenuPlace(null);
     // WHY: a close that scrolls the launcher into view would move the page under a reporter who scrolled it away.
+    launcher.current?.focus({ preventScroll: true });
+  }
+
+  function chooseReports() {
+    closeMenu();
+    setReportsOpen(true);
+  }
+
+  function closeReports() {
+    setReportsOpen(false);
     launcher.current?.focus({ preventScroll: true });
   }
 
@@ -402,6 +427,16 @@ export function BugReportButton(props: BugReportButtonProps) {
                   {choiceLabel(labels, choice)}
                 </button>
               ))}
+              {listReports ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  {...partProps(classNames, "screenshot-mode")}
+                  onClick={chooseReports}
+                >
+                  {labels.reportedIssues}
+                </button>
+              ) : null}
             </div>,
             document.body,
           )
@@ -430,6 +465,16 @@ export function BugReportButton(props: BugReportButtonProps) {
           technicalDetails={technicalDetails}
           onSent={sent}
           confirmation={confirmation}
+        />
+      ) : null}
+
+      {reportsOpen && listReports ? (
+        <ReportedIssuesPanel
+          listReports={listReports}
+          labels={labels}
+          statusLabels={statusLabels}
+          classNames={classNames}
+          onClose={closeReports}
         />
       ) : null}
 

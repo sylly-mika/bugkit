@@ -18,6 +18,23 @@ export type BugReportResult = { id: string; number: number };
 
 export type BugReportSubmit = (form: FormData) => Promise<BugReportResult>;
 
+export type ReportedIssue = {
+  number: number;
+  title: string;
+  status: string;
+  status_category: string;
+  reporter_name: string | null;
+  reported_at: string;
+  updated_at: string;
+};
+
+export type ReportedIssuesPage = {
+  data: ReportedIssue[];
+  meta: { page: number; per_page: number; total: number; total_pages: number };
+};
+
+export type ReportedIssuesList = (page: number) => Promise<ReportedIssuesPage>;
+
 /** What the browser knows, read here so the caller never has to. */
 export type BugReportEnvironment = {
   user_agent: string;

@@ -103,6 +103,21 @@ export type BugReportLabels = {
   copied: string;
   /** Shown when the clipboard is unavailable and the text has to be copied by hand. */
   copyManually: string;
+  // WHY: optional so a v0.11.2 label literal still compiles; mergeLabels fills them from defaultLabels.
+  reportedIssues?: string;
+  reportsColumnTitle?: string;
+  reportsColumnStatus?: string;
+  reportsColumnReporter?: string;
+  reportsColumnReported?: string;
+  reportsColumnChanged?: string;
+  reportsLoading?: string;
+  reportsFailed?: string;
+  reportsEmpty?: string;
+  reportsUnknownReporter?: string;
+  reportsPrevious?: string;
+  reportsNext?: string;
+  /** `{page}` and `{pages}` are replaced, e.g. "Page 2 of 5". */
+  reportsPage?: string;
 };
 
 /** `BugReportLabels` with every key present, as the components read them. */
@@ -222,6 +237,19 @@ export const defaultLabels: ResolvedBugReportLabels = {
   copied: "Copied",
   copyManually:
     "Copying is blocked in this browser. Select the text below and copy it with Ctrl+C.",
+  reportedIssues: "Reported issues",
+  reportsColumnTitle: "Title",
+  reportsColumnStatus: "Status",
+  reportsColumnReporter: "Reported by",
+  reportsColumnReported: "Reported",
+  reportsColumnChanged: "Last changed",
+  reportsLoading: "Loading reports…",
+  reportsFailed: "The reports could not be loaded.",
+  reportsEmpty: "No reports yet.",
+  reportsUnknownReporter: "Unknown",
+  reportsPrevious: "Previous",
+  reportsNext: "Next",
+  reportsPage: "Page {page} of {pages}",
 };
 
 /** The app's strings over the English defaults. An explicit `undefined` keeps the default. */
@@ -244,4 +272,32 @@ function definedOnly<T extends object>(part: Partial<T> | undefined): Partial<T>
 /** Replaces every `{number}` in a label template with the request number. */
 export function formatFiled(template: string, number: number): string {
   return template.split("{number}").join(String(number));
+}
+
+/** Replaces every `{page}` and `{pages}` in a label template. */
+export function formatPage(template: string, page: number, pages: number): string {
+  return template.split("{page}").join(String(page)).split("{pages}").join(String(pages));
+}
+
+export type ReportedStatusCategory = "triage" | "todo" | "in_progress" | "done" | "cancelled";
+
+/** The host's text per status category; a category left out keeps its default. */
+export type ReportedStatusLabels = Partial<Record<ReportedStatusCategory, string>>;
+
+export const defaultStatusLabels: Record<ReportedStatusCategory, string> = {
+  triage: "Received",
+  todo: "Planned",
+  in_progress: "In progress",
+  done: "Done",
+  cancelled: "Closed",
+};
+
+/** The text for a report's status; an unknown category shows the status name the backend sent. */
+export function reportedStatusText(
+  issue: { status: string; status_category: string },
+  overrides?: ReportedStatusLabels,
+): string {
+  if (!Object.prototype.hasOwnProperty.call(defaultStatusLabels, issue.status_category)) return issue.status;
+  const category = issue.status_category as ReportedStatusCategory;
+  return overrides?.[category] ?? defaultStatusLabels[category];
 }
